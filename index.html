@@ -483,7 +483,7 @@ function parsearVoz(texto){
 const state={items:[],pax:0};
 let qmCb=null;
 
-function fmtN(n){if(n==null)return'?';return Number(n).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:0,maximumFractionDigits:3});}
+function fmtN(n){if(n==null)return'?';return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
 function fmtE(n){return Number(n||0).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
 function fmtNum(n){if(n==null)return'?';return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
@@ -1019,7 +1019,8 @@ async function intentarCargarCierreFecha(fecha) {
     }
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
-    var cierreIdNum = cab.fields.id || cab.fields.ID;
+    // El ID numérico del item está en cab.id (no en cab.fields.id)
+    var cierreIdNum = cab.id;
     if (!cierreIdNum) {
       state.pax = cab.fields.Pensiones || 0;
       document.getElementById('dc-pax').value = state.pax;
@@ -1135,17 +1136,14 @@ let _listIds = {};
 
 async function getToken() {
   const account = msalInstance.getAllAccounts()[0];
-  if (!account) return null;
+  if (!account) { console.error('Sin cuenta MSAL'); return null; }
   try {
-    // Intentar silent primero (usa el refresh token en caché)
     const res = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
     return res.accessToken;
   } catch(e) {
-    console.warn('acquireTokenSilent falló, relanzando redirect:', e.message);
-    // Si el silent falla, relanzar el login redirect
-    // El usuario volverá autenticado y la app continuará
+    console.warn('Token silent falló, redirigiendo:', e.message);
     await msalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES, account });
-    return null; // nunca llega aquí, la página se recarga
+    return null;
   }
 }
 
@@ -1249,8 +1247,11 @@ async function guardarCierreSharePoint(datosCierre) {
     Version: version,
     EsCorreccion: esCorreccion
   };
-  const cab = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items', 'POST', { fields: cabFields });
-  const cierreNumId = cab.fields ? cab.fields.id : null;
+  // POST devuelve el item; el ID numérico está en cab.id (no en cab.fields.id)
+  const cabCreado = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items', 'POST', { fields: cabFields });
+  // cab.id es el ID numérico como string (ej: "42"), que es lo que guardan las líneas en CierreId
+  const cierreNumId = cabCreado ? cabCreado.id : null;
+  console.log('Cabecera creada. ID:', cierreNumId, '| Respuesta:', JSON.stringify(cabCreado));
 
   // Crear lineas
   for (var i = 0; i < datosCierre.lineas.length; i++) {
