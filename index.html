@@ -1095,7 +1095,7 @@ async function cargarArticulosSharePoint(hotelId) {
           spId: item.id
         };
       });
-      arts = arts.concat(items.filter(function(a){ return a.activo !== 0; }));
+      arts = arts.concat(items.filter(function(a){ return a.activo !== 0 && a.activo !== false; }));
       nextUrl = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
     }
     ARTICULOS.length = 0;
