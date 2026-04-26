@@ -968,18 +968,20 @@ state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
 var _fechaAntes = document.getElementById('dc-fecha').value;
 document.getElementById('dc-fecha').addEventListener('focus', function() {
-  _fechaAntes = this.value;
+  _fechaAntes = this.value; // guardar antes de editar
 });
-document.getElementById('dc-fecha').addEventListener('change', async function() {
+document.getElementById('dc-fecha').addEventListener('blur', async function() {
   var fechaNueva = this.value;
-  if (!fechaNueva || fechaNueva.length < 10 || fechaNueva === _fechaAntes) return;
+  // Solo actuar si la fecha cambió realmente y está completa
+  if (!fechaNueva || fechaNueva === _fechaAntes) return;
+  state.fecha = fechaNueva;
   if (state.items.length > 0) {
     if (!confirm('¿Descartar los artículos actuales y cargar el cierre del ' + fechaNueva + '?')) {
       this.value = _fechaAntes;
+      state.fecha = _fechaAntes;
       return;
     }
   }
-  state.fecha = fechaNueva;
   _fechaAntes = fechaNueva;
   await intentarCargarCierreFecha(fechaNueva);
 });
@@ -991,10 +993,12 @@ async function intentarCargarCierreFecha(fecha) {
     const siteId = await getSiteId();
     const listCabId = await getListId(siteId, 'DC_Cabecera');
     const listLinId = await getListId(siteId, 'DC_Lineas');
-    const fechaISO = fecha + 'T00:00:00Z';
 
+    // Resetear siempre al cambiar fecha
     limpiarGridSeleccion();
     state.items = [];
+    state.pax = 0;
+    document.getElementById('dc-pax').value = '';
     renderRight();
 
     // Graph no filtra por columnas de fecha personalizadas → cargar todo y filtrar en JS
@@ -1005,19 +1009,14 @@ async function intentarCargarCierreFecha(fecha) {
       todasCab = todasCab.concat(rCab.value || []);
       nextCab = rCab['@odata.nextLink'] ? rCab['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
     }
-
-    // Filtrar por hotel y fecha en JS
     var cierresDia = todasCab.filter(function(i) {
-      var f = i.fields;
-      var fechaItem = (f.Fecha || '').slice(0, 10);
-      return String(f.HotelID) === String(currentHotel.HotelId) && fechaItem === fecha;
+      return String(i.fields.HotelID) === String(currentHotel.HotelId) &&
+             (i.fields.Fecha || '').slice(0,10) === fecha;
     });
-    console.log('Cierres para', fecha, ':', cierresDia.length, '| Total cabeceras:', todasCab.length);
+    console.log('Cierres para', fecha, ':', cierresDia.length, '| Total cab:', todasCab.length);
 
     if (cierresDia.length === 0) {
       document.getElementById('h-badge').textContent = 'Borrador';
-      document.getElementById('dc-pax').value = '';
-      state.pax = 0;
       toast('Día sin cierre — borrador nuevo');
       return;
     }
@@ -1025,14 +1024,15 @@ async function intentarCargarCierreFecha(fecha) {
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
     var cierreIdNum = cab.fields.id || cab.fields.ID;
-    console.log('Cabecera encontrada. ID:', cierreIdNum, '| Campos:', JSON.stringify(cab.fields));
+    console.log('Cabecera encontrada. ID:', cierreIdNum);
 
     if (!cierreIdNum) {
-      document.getElementById('dc-pax').value = cab.fields.Pensiones || 0;
-      state.pax = cab.fields.Pensiones || 0;
+      var paxFallback = cab.fields.Pensiones || 0;
+      document.getElementById('dc-pax').value = paxFallback;
+      state.pax = paxFallback;
       document.getElementById('h-badge').textContent = 'Cerrado (sin ID)';
       renderRight();
-      toast('Cierre encontrado pero sin campo id — abre consola para ver campos disponibles', 'warn');
+      toast('Cierre encontrado sin ID numérico', 'warn');
       return;
     }
 
@@ -1048,7 +1048,7 @@ async function intentarCargarCierreFecha(fecha) {
       return String(i.fields.CierreId) === String(cierreIdNum) &&
              String(i.fields.HotelId) === String(currentHotel.HotelId);
     });
-    console.log('Lineas del cierre:', lineas.length, '| CierreId buscado:', cierreIdNum);
+    console.log('Lineas del cierre:', lineas.length, '| CierreId:', cierreIdNum);
 
     state.items = lineas.map(function(lin) {
       var f = lin.fields;
@@ -1244,7 +1244,7 @@ async function guardarCierreSharePoint(datosCierre) {
   const listLinId = await getListId(siteId, 'DC_Lineas');
   const fechaISO = datosCierre.fecha + 'T00:00:00Z';
 
-  // Graph no filtra por fecha personalizada → cargar recientes y filtrar en JS
+  // Graph no filtra por fechas personalizadas → cargar todo y filtrar en JS
   const cabRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
     '/items?$expand=fields&$top=500');
   const existentes = (cabRaw.value || []).filter(function(i) {
