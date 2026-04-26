@@ -228,9 +228,19 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
 <!-- Panel histórico -->
 <div id="hist-panel" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:center;justify-content:center;padding:20px">
   <div style="background:#fff;border-radius:12px;width:100%;max-width:700px;max-height:80vh;display:flex;flex-direction:column">
-    <div style="padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:15px;font-weight:700">Histórico de cierres</div>
-      <button id="hist-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888">×</button>
+    <div style="padding:14px 20px;border-bottom:1px solid #eee">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:15px;font-weight:700">Histórico de cierres</div>
+        <button id="hist-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888">×</button>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:11px;color:#888;font-weight:700">DESDE</label>
+        <input type="date" id="hist-desde" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;background:#fafafa">
+        <label style="font-size:11px;color:#888;font-weight:700">HASTA</label>
+        <input type="date" id="hist-hasta" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;background:#fafafa">
+        <button id="hist-filtrar" style="background:#1a1a1a;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Filtrar</button>
+        <button id="hist-todo" style="background:#f0f0ec;color:#555;border:1px solid #ddd;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Todo</button>
+      </div>
     </div>
     <div id="hist-list" style="flex:1;overflow-y:auto;padding:12px"></div>
   </div>
@@ -968,11 +978,10 @@ state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
 var _fechaAntes = document.getElementById('dc-fecha').value;
 document.getElementById('dc-fecha').addEventListener('focus', function() {
-  _fechaAntes = this.value; // guardar antes de editar
+  _fechaAntes = this.value;
 });
 document.getElementById('dc-fecha').addEventListener('blur', async function() {
   var fechaNueva = this.value;
-  // Solo actuar si la fecha cambió realmente y está completa
   if (!fechaNueva || fechaNueva === _fechaAntes) return;
   state.fecha = fechaNueva;
   if (state.items.length > 0) {
@@ -993,15 +1002,11 @@ async function intentarCargarCierreFecha(fecha) {
     const siteId = await getSiteId();
     const listCabId = await getListId(siteId, 'DC_Cabecera');
     const listLinId = await getListId(siteId, 'DC_Lineas');
-
-    // Resetear siempre al cambiar fecha
     limpiarGridSeleccion();
     state.items = [];
     state.pax = 0;
     document.getElementById('dc-pax').value = '';
     renderRight();
-
-    // Graph no filtra por columnas de fecha personalizadas → cargar todo y filtrar en JS
     var todasCab = [];
     var nextCab = '/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$top=500';
     while (nextCab) {
@@ -1013,30 +1018,22 @@ async function intentarCargarCierreFecha(fecha) {
       return String(i.fields.HotelID) === String(currentHotel.HotelId) &&
              (i.fields.Fecha || '').slice(0,10) === fecha;
     });
-    console.log('Cierres para', fecha, ':', cierresDia.length, '| Total cab:', todasCab.length);
-
     if (cierresDia.length === 0) {
       document.getElementById('h-badge').textContent = 'Borrador';
       toast('Día sin cierre — borrador nuevo');
       return;
     }
-
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
     var cierreIdNum = cab.fields.id || cab.fields.ID;
-    console.log('Cabecera encontrada. ID:', cierreIdNum);
-
     if (!cierreIdNum) {
-      var paxFallback = cab.fields.Pensiones || 0;
-      document.getElementById('dc-pax').value = paxFallback;
-      state.pax = paxFallback;
+      document.getElementById('dc-pax').value = cab.fields.Pensiones || 0;
+      state.pax = cab.fields.Pensiones || 0;
       document.getElementById('h-badge').textContent = 'Cerrado (sin ID)';
       renderRight();
-      toast('Cierre encontrado sin ID numérico', 'warn');
+      toast('Cierre sin ID numérico', 'warn');
       return;
     }
-
-    // Cargar líneas sin $filter
     var todasLineas = [];
     var nextLin = '/sites/' + siteId + '/lists/' + listLinId + '/items?$expand=fields&$top=500';
     while (nextLin) {
@@ -1048,8 +1045,6 @@ async function intentarCargarCierreFecha(fecha) {
       return String(i.fields.CierreId) === String(cierreIdNum) &&
              String(i.fields.HotelId) === String(currentHotel.HotelId);
     });
-    console.log('Lineas del cierre:', lineas.length, '| CierreId:', cierreIdNum);
-
     state.items = lineas.map(function(lin) {
       var f = lin.fields;
       var cod = String(f.IdArticulo || '');
@@ -1062,7 +1057,6 @@ async function intentarCargarCierreFecha(fecha) {
         u: f.Unidad||artBase.u, art: artBase,
         estado: f.EsSAP ? 'sap' : 'ok', alts: [] };
     });
-
     sincronizarGridConItems();
     var paxVal = cab.fields.Pensiones || 0;
     document.getElementById('dc-pax').value = paxVal;
@@ -1071,7 +1065,6 @@ async function intentarCargarCierreFecha(fecha) {
     document.getElementById('h-badge').textContent = ver > 1 ? 'Corrección v'+ver : 'Cerrado';
     renderRight();
     toast('Cierre del ' + fecha + ' — ' + state.items.length + ' artículos');
-
   } catch(e) {
     console.error('Error cargando cierre:', e);
     toast('Error: ' + e.message, 'err');
@@ -1244,9 +1237,8 @@ async function guardarCierreSharePoint(datosCierre) {
   const listLinId = await getListId(siteId, 'DC_Lineas');
   const fechaISO = datosCierre.fecha + 'T00:00:00Z';
 
-  // Graph no filtra por fechas personalizadas → cargar todo y filtrar en JS
-  const cabRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
-    '/items?$expand=fields&$top=500');
+  // Graph no filtra fechas personalizadas → cargar todo y filtrar en JS
+  const cabRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$top=500');
   const existentes = (cabRaw.value || []).filter(function(i) {
     return String(i.fields.HotelID) === String(datosCierre.hotelId) &&
            (i.fields.Fecha || '').slice(0,10) === datosCierre.fecha;
@@ -1435,14 +1427,42 @@ document.getElementById('h-hotel-nombre').addEventListener('click', function() {
 document.getElementById('btn-hist').addEventListener('click', async function() {
   var panel = document.getElementById('hist-panel');
   panel.style.display = 'flex';
+  // Poner fechas por defecto: último mes
+  var hoy = new Date();
+  var hace30 = new Date(hoy); hace30.setDate(hoy.getDate() - 30);
+  var fmt = function(d){ return d.toISOString().slice(0,10); };
+  document.getElementById('hist-hasta').value = fmt(hoy);
+  document.getElementById('hist-desde').value = fmt(hace30);
+  await histCargarYRender();
+});
+
+async function histCargarYRender() {
   var list = document.getElementById('hist-list');
-  list.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Cargando historico...</div>';
+  list.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Cargando...</div>';
   try {
+    var desde = document.getElementById('hist-desde').value;
+    var hasta = document.getElementById('hist-hasta').value;
     var cierres = await cargarHistorico();
+    // Filtrar por rango de fechas si están definidas
+    if (desde || hasta) {
+      cierres = cierres.filter(function(c) {
+        var f = (c.fields.Fecha || '').slice(0,10);
+        if (desde && f < desde) return false;
+        if (hasta && f > hasta) return false;
+        return true;
+      });
+    }
     renderHistorico(cierres);
   } catch(e) {
-    list.innerHTML = '<div style="text-align:center;padding:20px;color:#c13635">Error cargando historico: ' + e.message + '</div>';
+    list.innerHTML = '<div style="text-align:center;padding:20px;color:#c13635">Error: ' + e.message + '</div>';
   }
+}
+
+document.getElementById('hist-filtrar').addEventListener('click', histCargarYRender);
+document.getElementById('hist-todo').addEventListener('click', async function() {
+  document.getElementById('hist-desde').value = '';
+  document.getElementById('hist-hasta').value = '';
+  await histCargarYRender();
 });
 
 document.getElementById('hist-close').addEventListener('click', function() {
@@ -1592,11 +1612,11 @@ document.getElementById('btn-close').addEventListener('click', async function() 
     document.getElementById('h-badge').textContent = resultado.esCorreccion ? 'Corregido' : 'Cerrado';
     toast('Cierre guardado' + (resultado.esCorreccion ? ' (correccion v' + resultado.version + ')' : ''));
     state.items = [];
+    state.pax = 0;
+    document.getElementById('dc-pax').value = '';
+    document.getElementById('h-badge').textContent = 'Borrador';
+    limpiarGridSeleccion();
     renderRight();
-    document.querySelectorAll('.acard.selected').forEach(function(c){
-      c.classList.remove('selected');
-      var v = c.querySelector('.ac-val'); if(v) v.textContent = '0';
-    });
   } catch(err) {
     console.error(err);
     toast('Error al guardar el cierre: ' + err.message, 'err');
