@@ -726,10 +726,12 @@ document.getElementById('search-box').addEventListener('input',function(){
 });
 
 // Chips de familias
-(function(){
+function generarChipsFamilias(){
+  const fc=document.getElementById('fam-chips');
+  fc.innerHTML='';
+  tabState.fam=null;
   const fams={};
   for(const a of ARTICULOS)if(a.f)fams[a.f]=(fams[a.f]||0)+1;
-  const fc=document.getElementById('fam-chips');
   Object.entries(fams).sort((a,b)=>b[1]-a[1]).forEach(([f,n])=>{
     const ch=document.createElement('span');
     ch.className='fchip';ch.textContent=f+' ('+n+')';
@@ -740,7 +742,8 @@ document.getElementById('search-box').addEventListener('input',function(){
     });
     fc.appendChild(ch);
   });
-})();
+}
+generarChipsFamilias();
 
 // ── MODAL CANTIDAD ──
 function abrirModal(art,val,cb){
@@ -1073,8 +1076,7 @@ async function cargarArticulosSharePoint(hotelId) {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    // Graph API no admite $filter en columnas numericas/booleanas personalizadas
-    // Cargamos todo y filtramos en JS por HotelId y Activo
+    // Graph API no admite $filter en columnas personalizadas → filtramos en JS
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
     let arts = [];
     let nextUrl = url;
@@ -1107,6 +1109,7 @@ async function cargarArticulosSharePoint(hotelId) {
     arts.sort(function(a,b){ return a.d.localeCompare(b.d); });
     ARTICULOS.push.apply(ARTICULOS, arts);
     toast('Articulos cargados: ' + arts.length);
+    generarChipsFamilias();
     renderGrid(ARTICULOS);
     aplicarFiltro();
   } catch(e) {
@@ -1303,7 +1306,7 @@ async function cargarHotelesUsuario() {
     if (corporativo) {
       // Corporativo → ve todos los hoteles reales (HotelId > 0) + una opción "Todos"
       const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; });
-      return [{ HotelId: -1, Nombre: 'Todos los hoteles' }].concat(hotelesReales);
+      return hotelesReales;
     }
 
     // ¿Está en algún hotel concreto?
@@ -1323,15 +1326,7 @@ function seleccionarHotel(hotel) {
   document.getElementById('h-hotel-nombre').textContent = hotel.Nombre;
   document.getElementById('h-badge').textContent = 'Borrador';
   document.getElementById('hotel-select-overlay').style.display = 'none';
-  // HotelId=-1 significa corporativo viendo todos → cargar sin filtro de hotel
-  if (hotel.HotelId === -1) {
-    // De momento mostrar artículos del primer hotel real disponible
-    // En fases futuras: selector dinámico por hotel
-    renderGrid(ARTICULOS);
-    renderRight();
-  } else {
-    cargarArticulosSharePoint(hotel.HotelId);
-  }
+  cargarArticulosSharePoint(hotel.HotelId);
 }
 
 // INIT APP tras login
