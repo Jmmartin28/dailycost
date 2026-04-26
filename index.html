@@ -1073,29 +1073,34 @@ async function cargarArticulosSharePoint(hotelId) {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    const filter = 'fields/HotelId eq ' + hotelId;
-    const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$filter=' + encodeURIComponent(filter) + '&$top=1000';
+    // Graph API no admite $filter en columnas numericas/booleanas personalizadas
+    // Cargamos todo y filtramos en JS por HotelId y Activo
+    const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
     let arts = [];
     let nextUrl = url;
     while (nextUrl) {
       const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
-      const items = (r.value || []).map(function(item) {
-        const d = item.fields.Title || '';
-        const n = d.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-        return {
-          c: String(item.fields.CodigoSAP || ''),
-          d: d,
-          f: item.fields.Familia || '',
-          cc: item.fields.CC || '',
-          u: item.fields.Unidad || '',
-          p: parseFloat(item.fields.Precio) || 0,
-          n: n,
-          k: n.split(' ').filter(function(w){ return w.length > 1; }),
-          activo: item.fields.Activo,
-          spId: item.id
-        };
-      });
-      arts = arts.concat(items.filter(function(a){ return a.activo !== 0 && a.activo !== false; }));
+      const items = (r.value || [])
+        .filter(function(item) {
+          return String(item.fields.HotelId) === String(hotelId) &&
+                 item.fields.Activo !== false && item.fields.Activo !== 0;
+        })
+        .map(function(item) {
+          const d = item.fields.Title || '';
+          const n = d.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+          return {
+            c: String(item.fields.CodigoSAP || ''),
+            d: d,
+            f: item.fields.Familia || '',
+            cc: item.fields.CC || '',
+            u: item.fields.Unidad || '',
+            p: parseFloat(item.fields.Precio) || 0,
+            n: n,
+            k: n.split(' ').filter(function(w){ return w.length > 1; }),
+            spId: item.id
+          };
+        });
+      arts = arts.concat(items);
       nextUrl = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
     }
     ARTICULOS.length = 0;
