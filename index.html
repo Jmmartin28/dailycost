@@ -1028,6 +1028,7 @@ const GRAPH_SCOPES = ['https://graph.microsoft.com/Sites.ReadWrite.All','https:/
 
 let currentUser = null;
 let currentHotel = null;
+let hotelesDisponibles = []; // lista completa de hoteles del usuario
 let _siteId = null;
 let _listIds = {};
 
@@ -1076,7 +1077,7 @@ async function cargarArticulosSharePoint(hotelId) {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    // Graph API no admite $filter en columnas personalizadas → filtramos en JS
+    // Graph API no admite $filter en columnas personalizadas: filtramos en JS
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
     let arts = [];
     let nextUrl = url;
@@ -1125,9 +1126,12 @@ async function guardarCierreSharePoint(datosCierre) {
   const fechaISO = datosCierre.fecha + 'T00:00:00Z';
 
   // Verificar si ya existe cierre para esa fecha/hotel
-  const filtro = 'fields/HotelID eq ' + datosCierre.hotelId + ' and fields/Fecha eq \'' + fechaISO + '\'';
-  const existentes = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$filter=' + encodeURIComponent(filtro));
-  const version = existentes.value && existentes.value.length > 0 ? ((existentes.value[0].fields.Version || 1) + 1) : 1;
+  // Buscar cierres existentes para esta fecha/hotel (sin $filter → filtramos en JS)
+  const existentesRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$top=100&$filter=' + encodeURIComponent('fields/Fecha eq \'' + fechaISO + '\''));
+  const existentes = (existentesRaw.value || []).filter(function(i) {
+    return String(i.fields.HotelID) === String(datosCierre.hotelId);
+  });
+  const version = existentes.length > 0 ? ((existentes[0].fields.Version || 1) + 1) : 1;
   const esCorreccion = version > 1;
 
   // Crear cabecera
@@ -1175,8 +1179,23 @@ async function cargarHistorico() {
   const siteId = await getSiteId();
   const listId = await getListId(siteId, 'DC_Cabecera');
   const hotelId = currentHotel ? currentHotel.HotelId : 80;
-  const r = await graphCall('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$filter=' + encodeURIComponent('fields/HotelID eq ' + hotelId) + '&$orderby=fields/Fecha desc&$top=365');
-  return r.value || [];
+  // Cargamos sin $filter (Graph no filtra columnas personalizadas) y filtramos en JS
+  // Paginamos para traer todo el histórico
+  let allItems = [];
+  let nextUrl = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=365';
+  while (nextUrl) {
+    const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
+    const items = (r.value || []).filter(function(item) {
+      return String(item.fields.HotelID) === String(hotelId);
+    });
+    allItems = allItems.concat(items);
+    nextUrl = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
+  }
+  // Ordenar por fecha descendente en JS
+  allItems.sort(function(a, b) {
+    return (b.fields.Fecha || '').localeCompare(a.fields.Fecha || '');
+  });
+  return allItems;
 }
 
 function renderHistorico(cierres) {
@@ -1263,6 +1282,25 @@ document.getElementById('btn-logout').addEventListener('click', function() {
 });
 
 // HISTORICO
+// Click en nombre hotel → selector si corporativo con varios hoteles
+document.getElementById('h-hotel-nombre').addEventListener('click', function() {
+  if (hotelesDisponibles.length <= 1) return; // solo un hotel, no hace nada
+  var overlay = document.getElementById('hotel-select-overlay');
+  var list = document.getElementById('hotel-select-list');
+  list.innerHTML = '';
+  hotelesDisponibles.forEach(function(h) {
+    var btn = document.createElement('button');
+    btn.textContent = h.Nombre;
+    var esActual = currentHotel && currentHotel.HotelId === h.HotelId;
+    btn.style.cssText = 'padding:12px;border:1.5px solid ' + (esActual ? '#1d9e75' : '#e8e8e3') + ';border-radius:8px;background:' + (esActual ? '#f0fbf6' : '#fff') + ';font-size:14px;font-weight:600;cursor:pointer;text-align:left;transition:all .15s';
+    btn.addEventListener('mouseover', function(){ if(!esActual) btn.style.background='#f4f4f0'; });
+    btn.addEventListener('mouseout', function(){ if(!esActual) btn.style.background='#fff'; });
+    btn.addEventListener('click', function(){ seleccionarHotel(h); });
+    list.appendChild(btn);
+  });
+  overlay.style.display = 'flex';
+});
+
 document.getElementById('btn-hist').addEventListener('click', async function() {
   var panel = document.getElementById('hist-panel');
   panel.style.display = 'flex';
@@ -1326,7 +1364,19 @@ function seleccionarHotel(hotel) {
   document.getElementById('h-hotel-nombre').textContent = hotel.Nombre;
   document.getElementById('h-badge').textContent = 'Borrador';
   document.getElementById('hotel-select-overlay').style.display = 'none';
+  // Resetear articulos y estado al cambiar de hotel
+  state.items = [];
+  renderRight();
   cargarArticulosSharePoint(hotel.HotelId);
+  // Mostrar indicador de que el nombre es clicable si hay varios hoteles
+  var hNombre = document.getElementById('h-hotel-nombre');
+  if (hotelesDisponibles.length > 1) {
+    hNombre.style.cursor = 'pointer';
+    hNombre.title = 'Cambiar hotel';
+  } else {
+    hNombre.style.cursor = 'default';
+    hNombre.title = '';
+  }
 }
 
 // INIT APP tras login
@@ -1340,6 +1390,7 @@ async function initApp() {
 
   // Cargar hoteles del usuario
   const hoteles = await cargarHotelesUsuario();
+  hotelesDisponibles = hoteles;
 
   if (hoteles.length === 0) {
     // Sin acceso configurado
