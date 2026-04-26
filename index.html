@@ -962,7 +962,6 @@ document.getElementById('lh-clear').addEventListener('click',()=>{
   renderRight();
 });
 
-// [Fix: listener btn-close simulacion eliminado]
 // ── FECHA / PAX ──
 const hoy=new Date().toISOString().slice(0,10);
 state.fecha=hoy;
@@ -1074,7 +1073,7 @@ async function cargarArticulosSharePoint(hotelId) {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    const filter = 'fields/HotelId eq ' + hotelId + ' and fields/Activo eq true';
+    const filter = 'fields/HotelId eq ' + hotelId;
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$filter=' + encodeURIComponent(filter) + '&$top=1000';
     let arts = [];
     let nextUrl = url;
@@ -1092,10 +1091,11 @@ async function cargarArticulosSharePoint(hotelId) {
           p: parseFloat(item.fields.Precio) || 0,
           n: n,
           k: n.split(' ').filter(function(w){ return w.length > 1; }),
+          activo: item.fields.Activo,
           spId: item.id
         };
       });
-      arts = arts.concat(items);
+      arts = arts.concat(items.filter(function(a){ return a.activo !== 0; }));
       nextUrl = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
     }
     ARTICULOS.length = 0;
@@ -1236,8 +1236,6 @@ document.getElementById('btn-login').addEventListener('click', function() {
   var btn = document.getElementById('btn-login');
   btn.disabled = true;
   btn.textContent = 'Conectando...';
-  // loginRedirect evita block_nested_popups de Edge
-  // La pagina se redirige a Microsoft y vuelve; handleRedirectPromise lo captura
   msalInstance.loginRedirect({ scopes: GRAPH_SCOPES }).catch(function(e) {
     console.error('Login redirect error:', e);
     btn.disabled = false;
@@ -1280,7 +1278,7 @@ async function cargarHotelesUsuario() {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Hoteles');
     const email = (currentUser.username || currentUser.name || '').toLowerCase();
-    const r = await graphCall('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$filter=fields/Activo eq true');
+    const r = await graphCall('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields');
     const todos = (r.value || []).map(function(item) {
       return {
         Id: item.id,
@@ -1445,7 +1443,7 @@ msalInstance.initialize().then(function() {
 }).catch(function(e) {
   console.error('MSAL init error:', e);
   var err = document.getElementById('login-error');
-  if (err) { err.style.display = 'block'; err.textContent = 'Error de autenticacion: ' + e.message; }
+  if (err) { err.style.display='block'; err.textContent='Error auth: '+e.message; }
 });
 
 
