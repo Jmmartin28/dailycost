@@ -473,8 +473,9 @@ function parsearVoz(texto){
 const state={items:[],pax:0};
 let qmCb=null;
 
-function fmtN(n){if(n==null)return'?';if(Number.isInteger(n))return String(n);return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
+function fmtN(n){if(n==null)return'?';return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
 function fmtE(n){return(n||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
+function fmtNum(n){if(n==null)return'?';return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
 
 function toast(msg,tipo,dur=1800){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(tipo?' '+tipo:'');clearTimeout(toast._t);toast._t=setTimeout(()=>t.className='toast'+(tipo?' '+tipo:''),dur);}
@@ -728,8 +729,7 @@ document.getElementById('search-box').addEventListener('input',function(){
 // Chips de familias
 function generarChipsFamilias(){
   const fc=document.getElementById('fam-chips');
-  fc.innerHTML='';
-  tabState.fam=null;
+  fc.innerHTML=''; tabState.fam=null;
   const fams={};
   for(const a of ARTICULOS)if(a.f)fams[a.f]=(fams[a.f]||0)+1;
   Object.entries(fams).sort((a,b)=>b[1]-a[1]).forEach(([f,n])=>{
@@ -969,7 +969,76 @@ document.getElementById('lh-clear').addEventListener('click',()=>{
 const hoy=new Date().toISOString().slice(0,10);
 state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
-document.getElementById('dc-fecha').addEventListener('change',function(){state.fecha=this.value;});
+document.getElementById('dc-fecha').addEventListener('change', async function() {
+  var fecha = this.value;
+  state.fecha = fecha;
+  // Si hay artículos en lista, preguntar antes de cargar cierre existente
+  if (state.items.length > 0) {
+    if (!confirm('¿Descartar los artículos actuales y cargar el cierre de ' + fecha + '?')) {
+      this.value = state.fecha; // revertir
+      return;
+    }
+  }
+  await intentarCargarCierreFecha(fecha);
+});
+
+async function intentarCargarCierreFecha(fecha) {
+  if (!currentHotel || !fecha) return;
+  try {
+    const siteId = await getSiteId();
+    const listCabId = await getListId(siteId, 'DC_Cabecera');
+    const listLinId = await getListId(siteId, 'DC_Lineas');
+    const fechaISO = fecha + 'T00:00:00Z';
+    // Buscar cierres para esta fecha/hotel
+    const rawCab = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
+      '/items?$expand=fields&$top=50&$filter=' + encodeURIComponent("fields/Fecha eq '" + fechaISO + "'"));
+    const cierresDia = (rawCab.value || []).filter(function(i) {
+      return String(i.fields.HotelID) === String(currentHotel.HotelId);
+    });
+    if (cierresDia.length === 0) {
+      // Sin cierre: día nuevo, limpiar lista
+      state.items = [];
+      document.getElementById('h-badge').textContent = 'Borrador';
+      renderRight();
+      return;
+    }
+    // Tomar la versión más reciente
+    cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
+    var cab = cierresDia[0];
+    var cierreId = parseInt(cab.fields.id || cab.id);
+    // Cargar líneas de ese cierre
+    const rawLin = await graphCall('/sites/' + siteId + '/lists/' + listLinId +
+      '/items?$expand=fields&$top=500');
+    const lineas = (rawLin.value || []).filter(function(i) {
+      return String(i.fields.CierreId) === String(cierreId) &&
+             String(i.fields.HotelId) === String(currentHotel.HotelId);
+    });
+    // Reconstruir state.items desde las líneas
+    state.items = lineas.map(function(lin) {
+      var f = lin.fields;
+      var cod = f.IdArticulo || ('__SP__' + lin.id);
+      var artBase = ARTICULOS.find(function(a){ return a.c === cod; }) || {
+        c: cod, d: f.Articulo||'', f: f.Familia||'', cc: f.CC||'',
+        u: f.Unidad||'UN', p: parseFloat(f.Precio)||0,
+        n: (f.Articulo||'').toLowerCase(), k: []
+      };
+      return {
+        cod: cod, qty: parseFloat(f.UnidadesConsumidas)||1,
+        u: f.Unidad || artBase.u, art: artBase,
+        estado: f.EsSAP ? 'sap' : 'ok', alts: []
+      };
+    });
+    // Actualizar pax del header
+    var paxVal = cab.fields.Pensiones || 0;
+    document.getElementById('dc-pax').value = paxVal;
+    state.pax = paxVal;
+    document.getElementById('h-badge').textContent = 'Cargado v' + (cab.fields.Version||1);
+    renderRight();
+    toast('Cierre del ' + fecha + ' cargado (' + state.items.length + ' artículos)');
+  } catch(e) {
+    console.error('Error cargando cierre por fecha:', e);
+  }
+}
 document.getElementById('dc-pax').addEventListener('input',function(){state.pax=parseInt(this.value)||0;renderRight();});
 
 // ── ARTÍCULOS NO CATALOGADOS ──
@@ -1028,7 +1097,7 @@ const GRAPH_SCOPES = ['https://graph.microsoft.com/Sites.ReadWrite.All','https:/
 
 let currentUser = null;
 let currentHotel = null;
-let hotelesDisponibles = []; // lista completa de hoteles del usuario
+let hotelesDisponibles = [];
 let _siteId = null;
 let _listIds = {};
 
@@ -1077,7 +1146,6 @@ async function cargarArticulosSharePoint(hotelId) {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    // Graph API no admite $filter en columnas personalizadas: filtramos en JS
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
     let arts = [];
     let nextUrl = url;
@@ -1093,13 +1161,9 @@ async function cargarArticulosSharePoint(hotelId) {
           const n = d.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
           return {
             c: String(item.fields.CodigoSAP || ''),
-            d: d,
-            f: item.fields.Familia || '',
-            cc: item.fields.CC || '',
-            u: item.fields.Unidad || '',
-            p: parseFloat(item.fields.Precio) || 0,
-            n: n,
-            k: n.split(' ').filter(function(w){ return w.length > 1; }),
+            d: d, f: item.fields.Familia || '', cc: item.fields.CC || '',
+            u: item.fields.Unidad || '', p: parseFloat(item.fields.Precio) || 0,
+            n: n, k: n.split(' ').filter(function(w){ return w.length > 1; }),
             spId: item.id
           };
         });
@@ -1110,9 +1174,7 @@ async function cargarArticulosSharePoint(hotelId) {
     arts.sort(function(a,b){ return a.d.localeCompare(b.d); });
     ARTICULOS.push.apply(ARTICULOS, arts);
     toast('Articulos cargados: ' + arts.length);
-    generarChipsFamilias();
-    renderGrid(ARTICULOS);
-    aplicarFiltro();
+    generarChipsFamilias(); renderGrid(ARTICULOS); aplicarFiltro();
   } catch(e) {
     console.error('Error cargando articulos:', e);
     toast('Error cargando articulos - usando listado local', 'warn');
@@ -1126,11 +1188,13 @@ async function guardarCierreSharePoint(datosCierre) {
   const fechaISO = datosCierre.fecha + 'T00:00:00Z';
 
   // Verificar si ya existe cierre para esa fecha/hotel
-  // Buscar cierres existentes para esta fecha/hotel (sin $filter → filtramos en JS)
-  const existentesRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$top=100&$filter=' + encodeURIComponent('fields/Fecha eq \'' + fechaISO + '\''));
-  const existentes = (existentesRaw.value || []).filter(function(i) {
+  // Detectar si existe cierre previo para esta fecha/hotel (sin $filter numérico)
+  const existRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
+    '/items?$expand=fields&$top=50&$filter=' + encodeURIComponent("fields/Fecha eq '" + fechaISO + "'"));
+  const existentes = (existRaw.value || []).filter(function(i) {
     return String(i.fields.HotelID) === String(datosCierre.hotelId);
   });
+  existentes.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
   const version = existentes.length > 0 ? ((existentes[0].fields.Version || 1) + 1) : 1;
   const esCorreccion = version > 1;
 
@@ -1179,8 +1243,7 @@ async function cargarHistorico() {
   const siteId = await getSiteId();
   const listId = await getListId(siteId, 'DC_Cabecera');
   const hotelId = currentHotel ? currentHotel.HotelId : 80;
-  // Cargamos sin $filter (Graph no filtra columnas personalizadas) y filtramos en JS
-  // Paginamos para traer todo el histórico
+  // Cargar todos los cierres del hotel sin $filter (Graph no filtra columnas personalizadas)
   let allItems = [];
   let nextUrl = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=365';
   while (nextUrl) {
@@ -1189,13 +1252,20 @@ async function cargarHistorico() {
       return String(item.fields.HotelID) === String(hotelId);
     });
     allItems = allItems.concat(items);
-    nextUrl = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
+    nextUrl = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
   }
-  // Ordenar por fecha descendente en JS
-  allItems.sort(function(a, b) {
-    return (b.fields.Fecha || '').localeCompare(a.fields.Fecha || '');
+  // Ordenar por fecha desc; quedarse solo con la versión más reciente de cada fecha
+  allItems.sort(function(a,b){ return (b.fields.Fecha||'').localeCompare(a.fields.Fecha||''); });
+  var porFecha = {};
+  allItems.forEach(function(item) {
+    var fecha = (item.fields.Fecha||'').slice(0,10);
+    if (!fecha) return;
+    var ver = item.fields.Version || 1;
+    if (!porFecha[fecha] || ver > (porFecha[fecha].fields.Version||1)) porFecha[fecha] = item;
   });
-  return allItems;
+  return Object.values(porFecha).sort(function(a,b){
+    return (b.fields.Fecha||'').localeCompare(a.fields.Fecha||'');
+  });
 }
 
 function renderHistorico(cierres) {
@@ -1282,20 +1352,24 @@ document.getElementById('btn-logout').addEventListener('click', function() {
 });
 
 // HISTORICO
-// Click en nombre hotel → selector si corporativo con varios hoteles
+// Click en nombre del hotel → abre selector (solo corporativos con >1 hotel)
 document.getElementById('h-hotel-nombre').addEventListener('click', function() {
-  if (hotelesDisponibles.length <= 1) return; // solo un hotel, no hace nada
+  if (!hotelesDisponibles || hotelesDisponibles.length <= 1) return;
   var overlay = document.getElementById('hotel-select-overlay');
   var list = document.getElementById('hotel-select-list');
   list.innerHTML = '';
   hotelesDisponibles.forEach(function(h) {
-    var btn = document.createElement('button');
-    btn.textContent = h.Nombre;
     var esActual = currentHotel && currentHotel.HotelId === h.HotelId;
-    btn.style.cssText = 'padding:12px;border:1.5px solid ' + (esActual ? '#1d9e75' : '#e8e8e3') + ';border-radius:8px;background:' + (esActual ? '#f0fbf6' : '#fff') + ';font-size:14px;font-weight:600;cursor:pointer;text-align:left;transition:all .15s';
-    btn.addEventListener('mouseover', function(){ if(!esActual) btn.style.background='#f4f4f0'; });
-    btn.addEventListener('mouseout', function(){ if(!esActual) btn.style.background='#fff'; });
-    btn.addEventListener('click', function(){ seleccionarHotel(h); });
+    var btn = document.createElement('button');
+    btn.textContent = h.Nombre + (esActual ? ' ✓' : '');
+    btn.style.cssText = 'padding:12px;border:1.5px solid ' + (esActual ? '#1d9e75' : '#e8e8e3') +
+      ';border-radius:8px;background:' + (esActual ? '#f0fbf6' : '#fff') +
+      ';font-size:14px;font-weight:600;cursor:pointer;text-align:left;width:100%';
+    if (!esActual) {
+      btn.addEventListener('mouseover', function(){ btn.style.background='#f4f4f0'; });
+      btn.addEventListener('mouseout', function(){ btn.style.background='#fff'; });
+      btn.addEventListener('click', function(){ seleccionarHotel(h); });
+    }
     list.appendChild(btn);
   });
   overlay.style.display = 'flex';
@@ -1364,18 +1438,15 @@ function seleccionarHotel(hotel) {
   document.getElementById('h-hotel-nombre').textContent = hotel.Nombre;
   document.getElementById('h-badge').textContent = 'Borrador';
   document.getElementById('hotel-select-overlay').style.display = 'none';
-  // Resetear articulos y estado al cambiar de hotel
   state.items = [];
   renderRight();
   cargarArticulosSharePoint(hotel.HotelId);
-  // Mostrar indicador de que el nombre es clicable si hay varios hoteles
-  var hNombre = document.getElementById('h-hotel-nombre');
+  // Cursor clicable solo si hay varios hoteles disponibles
+  var hEl = document.getElementById('h-hotel-nombre');
   if (hotelesDisponibles.length > 1) {
-    hNombre.style.cursor = 'pointer';
-    hNombre.title = 'Cambiar hotel';
-  } else {
-    hNombre.style.cursor = 'default';
-    hNombre.title = '';
+    hEl.style.cursor = 'pointer';
+    hEl.title = 'Cambiar hotel';
+    hEl.style.textDecoration = 'underline dotted';
   }
 }
 
@@ -1483,14 +1554,10 @@ renderRight();
 msalInstance.initialize().then(function() {
   return msalInstance.handleRedirectPromise();
 }).then(function(redirectResult) {
-  if (redirectResult) {
-    console.log('Redirect login OK:', redirectResult.account.username);
-  }
+  if (redirectResult) console.log('Redirect login OK:', redirectResult.account.username);
   var accounts = msalInstance.getAllAccounts();
   console.log('Cuentas MSAL:', accounts.length);
-  if (accounts.length > 0) {
-    initApp();
-  }
+  if (accounts.length > 0) initApp();
 }).catch(function(e) {
   console.error('MSAL init error:', e);
   var err = document.getElementById('login-error');
