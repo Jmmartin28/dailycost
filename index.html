@@ -485,7 +485,7 @@ let qmCb=null;
 
 function fmtN(n){if(n==null)return'?';return Number(n).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:0,maximumFractionDigits:3});}
 function fmtE(n){return Number(n||0).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
-function fmtNum(n){if(n==null)return'?';return Number(n).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:0,maximumFractionDigits:3});}
+function fmtNum(n){if(n==null)return'?';return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
 
 function toast(msg,tipo,dur=1800){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(tipo?' '+tipo:'');clearTimeout(toast._t);toast._t=setTimeout(()=>t.className='toast'+(tipo?' '+tipo:''),dur);}
@@ -983,7 +983,7 @@ document.getElementById('dc-fecha').addEventListener('blur', async function() {
   if (!fechaNueva || fechaNueva === _fechaAntes) return;
   state.fecha = fechaNueva;
   if (state.items.length > 0) {
-    if (!confirm('¿Descartar artículos actuales y cargar cierre del ' + fechaNueva + '?')) {
+    if (!confirm('¿Descartar artículos y cargar cierre del ' + fechaNueva + '?')) {
       this.value = _fechaAntes; state.fecha = _fechaAntes; return;
     }
   }
@@ -1023,8 +1023,8 @@ async function intentarCargarCierreFecha(fecha) {
     if (!cierreIdNum) {
       state.pax = cab.fields.Pensiones || 0;
       document.getElementById('dc-pax').value = state.pax;
-      document.getElementById('h-badge').textContent = 'Cerrado (sin ID)';
-      renderRight(); toast('Cierre sin ID numérico', 'warn'); return;
+      document.getElementById('h-badge').textContent = 'Cerrado';
+      renderRight(); toast('Cierre encontrado', 'warn'); return;
     }
     var todasLineas = [];
     var nextLin = '/sites/'+siteId+'/lists/'+listLinId+'/items?$expand=fields&$top=500';
@@ -1137,11 +1137,15 @@ async function getToken() {
   const account = msalInstance.getAllAccounts()[0];
   if (!account) return null;
   try {
+    // Intentar silent primero (usa el refresh token en caché)
     const res = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
     return res.accessToken;
   } catch(e) {
-    const res = await msalInstance.acquireTokenPopup({ scopes: GRAPH_SCOPES });
-    return res.accessToken;
+    console.warn('acquireTokenSilent falló, relanzando redirect:', e.message);
+    // Si el silent falla, relanzar el login redirect
+    // El usuario volverá autenticado y la app continuará
+    await msalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES, account });
+    return null; // nunca llega aquí, la página se recarga
   }
 }
 
@@ -1220,6 +1224,7 @@ async function guardarCierreSharePoint(datosCierre) {
   const fechaISO = datosCierre.fecha + 'T00:00:00Z';
 
   // Verificar si ya existe cierre para esa fecha/hotel
+
   // Graph no filtra fechas personalizadas → cargar todo y filtrar en JS
   const cabRaw = await graphCall('/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500');
   const existentes = (cabRaw.value||[]).filter(function(i){
@@ -1408,8 +1413,7 @@ document.getElementById('h-hotel-nombre').addEventListener('click', function() {
 });
 
 document.getElementById('btn-hist').addEventListener('click', async function() {
-  var panel = document.getElementById('hist-panel');
-  panel.style.display = 'flex';
+  document.getElementById('hist-panel').style.display = 'flex';
   var hoy = new Date(); var hace30 = new Date(hoy); hace30.setDate(hoy.getDate()-30);
   var fmt = function(d){ return d.toISOString().slice(0,10); };
   document.getElementById('hist-hasta').value = fmt(hoy);
@@ -1437,7 +1441,6 @@ async function histCargarYRender() {
     list.innerHTML = '<div style="text-align:center;padding:20px;color:#c13635">Error: '+e.message+'</div>';
   }
 }
-
 document.getElementById('hist-filtrar').addEventListener('click', histCargarYRender);
 document.getElementById('hist-todo').addEventListener('click', async function() {
   document.getElementById('hist-desde').value = '';
