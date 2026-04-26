@@ -962,19 +962,12 @@ document.getElementById('lh-clear').addEventListener('click',()=>{
   renderRight();
 });
 
-document.getElementById('btn-close').addEventListener('click',()=>{
-  if(!state.pax){toast('⚠ Indica pensiones','err');return;}
-  const dudas=state.items.filter(i=>i.estado==='duda').length;
-  const total=state.items.reduce((s,i)=>s+i.qty*i.art.p,0);
-  let msg='¿Cerrar el día?\n\nArtículos: '+state.items.length+'\nPensiones: '+state.pax+'\nCoste: '+fmtE(total);
-  if(dudas)msg+='\n⚠ '+dudas+' artículos con dudas';
-  if(!confirm(msg))return;
-  alert('✓ Simulación de cierre\n\n'+msg);
-});
-
+// [Fix: listener btn-close simulacion eliminado]
 // ── FECHA / PAX ──
 const hoy=new Date().toISOString().slice(0,10);
+state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
+document.getElementById('dc-fecha').addEventListener('change',function(){state.fecha=this.value;});
 document.getElementById('dc-pax').addEventListener('input',function(){state.pax=parseInt(this.value)||0;renderRight();});
 
 // ── ARTÍCULOS NO CATALOGADOS ──
@@ -1081,7 +1074,7 @@ async function cargarArticulosSharePoint(hotelId) {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    const filter = 'fields/HotelId eq ' + hotelId + ' and fields/Activo eq 1';
+    const filter = 'fields/HotelId eq ' + hotelId + ' and fields/Activo eq true';
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$filter=' + encodeURIComponent(filter) + '&$top=1000';
     let arts = [];
     let nextUrl = url;
@@ -1243,8 +1236,8 @@ document.getElementById('btn-login').addEventListener('click', function() {
   var btn = document.getElementById('btn-login');
   btn.disabled = true;
   btn.textContent = 'Conectando...';
-  // loginRedirect evita block_nested_popups en Edge
-  // La página se recarga y handleRedirectPromise captura el resultado al volver
+  // loginRedirect evita block_nested_popups de Edge
+  // La pagina se redirige a Microsoft y vuelve; handleRedirectPromise lo captura
   msalInstance.loginRedirect({ scopes: GRAPH_SCOPES }).catch(function(e) {
     console.error('Login redirect error:', e);
     btn.disabled = false;
@@ -1287,7 +1280,7 @@ async function cargarHotelesUsuario() {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Hoteles');
     const email = (currentUser.username || currentUser.name || '').toLowerCase();
-    const r = await graphCall('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$filter=fields/Activo eq 1');
+    const r = await graphCall('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$filter=fields/Activo eq true');
     const todos = (r.value || []).map(function(item) {
       return {
         Id: item.id,
@@ -1441,7 +1434,6 @@ renderRight();
 msalInstance.initialize().then(function() {
   return msalInstance.handleRedirectPromise();
 }).then(function(redirectResult) {
-  // redirectResult tiene valor cuando venimos de loginRedirect
   if (redirectResult) {
     console.log('Redirect login OK:', redirectResult.account.username);
   }
