@@ -233,13 +233,13 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
         <div style="font-size:15px;font-weight:700">Histórico de cierres</div>
         <button id="hist-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888">×</button>
       </div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <label style="font-size:11px;color:#888;font-weight:700">DESDE</label>
-        <input type="date" id="hist-desde" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;background:#fafafa">
+        <input type="date" id="hist-desde" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px">
         <label style="font-size:11px;color:#888;font-weight:700">HASTA</label>
-        <input type="date" id="hist-hasta" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;background:#fafafa">
+        <input type="date" id="hist-hasta" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px">
         <button id="hist-filtrar" style="background:#1a1a1a;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Filtrar</button>
-        <button id="hist-todo" style="background:#f0f0ec;color:#555;border:1px solid #ddd;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Todo</button>
+        <button id="hist-todo" style="background:#f0f0ec;color:#555;border:1px solid #ddd;padding:6px 14px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600">Todo</button>
       </div>
     </div>
     <div id="hist-list" style="flex:1;overflow-y:auto;padding:12px"></div>
@@ -483,9 +483,9 @@ function parsearVoz(texto){
 const state={items:[],pax:0};
 let qmCb=null;
 
-function fmtN(n){if(n==null)return'?';return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
-function fmtE(n){return(n||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
-function fmtNum(n){if(n==null)return'?';return n.toLocaleString('es-ES',{maximumFractionDigits:3});}
+function fmtN(n){if(n==null)return'?';return Number(n).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:0,maximumFractionDigits:3});}
+function fmtE(n){return Number(n||0).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
+function fmtNum(n){if(n==null)return'?';return Number(n).toLocaleString('es-ES',{useGrouping:true,minimumFractionDigits:0,maximumFractionDigits:3});}
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
 
 function toast(msg,tipo,dur=1800){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(tipo?' '+tipo:'');clearTimeout(toast._t);toast._t=setTimeout(()=>t.className='toast'+(tipo?' '+tipo:''),dur);}
@@ -977,18 +977,14 @@ const hoy=new Date().toISOString().slice(0,10);
 state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
 var _fechaAntes = document.getElementById('dc-fecha').value;
-document.getElementById('dc-fecha').addEventListener('focus', function() {
-  _fechaAntes = this.value;
-});
+document.getElementById('dc-fecha').addEventListener('focus', function() { _fechaAntes = this.value; });
 document.getElementById('dc-fecha').addEventListener('blur', async function() {
   var fechaNueva = this.value;
   if (!fechaNueva || fechaNueva === _fechaAntes) return;
   state.fecha = fechaNueva;
   if (state.items.length > 0) {
-    if (!confirm('¿Descartar los artículos actuales y cargar el cierre del ' + fechaNueva + '?')) {
-      this.value = _fechaAntes;
-      state.fecha = _fechaAntes;
-      return;
+    if (!confirm('¿Descartar artículos actuales y cargar cierre del ' + fechaNueva + '?')) {
+      this.value = _fechaAntes; state.fecha = _fechaAntes; return;
     }
   }
   _fechaAntes = fechaNueva;
@@ -1003,12 +999,11 @@ async function intentarCargarCierreFecha(fecha) {
     const listCabId = await getListId(siteId, 'DC_Cabecera');
     const listLinId = await getListId(siteId, 'DC_Lineas');
     limpiarGridSeleccion();
-    state.items = [];
-    state.pax = 0;
+    state.items = []; state.pax = 0;
     document.getElementById('dc-pax').value = '';
     renderRight();
     var todasCab = [];
-    var nextCab = '/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$top=500';
+    var nextCab = '/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500';
     while (nextCab) {
       var rCab = await graphCall(nextCab.replace('https://graph.microsoft.com/v1.0',''));
       todasCab = todasCab.concat(rCab.value || []);
@@ -1016,26 +1011,23 @@ async function intentarCargarCierreFecha(fecha) {
     }
     var cierresDia = todasCab.filter(function(i) {
       return String(i.fields.HotelID) === String(currentHotel.HotelId) &&
-             (i.fields.Fecha || '').slice(0,10) === fecha;
+             (i.fields.Fecha||'').slice(0,10) === fecha;
     });
     if (cierresDia.length === 0) {
       document.getElementById('h-badge').textContent = 'Borrador';
-      toast('Día sin cierre — borrador nuevo');
-      return;
+      toast('Día sin cierre — borrador nuevo'); return;
     }
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
     var cierreIdNum = cab.fields.id || cab.fields.ID;
     if (!cierreIdNum) {
-      document.getElementById('dc-pax').value = cab.fields.Pensiones || 0;
       state.pax = cab.fields.Pensiones || 0;
+      document.getElementById('dc-pax').value = state.pax;
       document.getElementById('h-badge').textContent = 'Cerrado (sin ID)';
-      renderRight();
-      toast('Cierre sin ID numérico', 'warn');
-      return;
+      renderRight(); toast('Cierre sin ID numérico', 'warn'); return;
     }
     var todasLineas = [];
-    var nextLin = '/sites/' + siteId + '/lists/' + listLinId + '/items?$expand=fields&$top=500';
+    var nextLin = '/sites/'+siteId+'/lists/'+listLinId+'/items?$expand=fields&$top=500';
     while (nextLin) {
       var rLin = await graphCall(nextLin.replace('https://graph.microsoft.com/v1.0',''));
       todasLineas = todasLineas.concat(rLin.value || []);
@@ -1050,25 +1042,19 @@ async function intentarCargarCierreFecha(fecha) {
       var cod = String(f.IdArticulo || '');
       var artBase = ARTICULOS.find(function(a){ return a.c === cod; }) || {
         c: cod, d: f.Articulo||'?', f: f.Familia||'', cc: f.CC||'',
-        u: f.Unidad||'UN', p: parseFloat(f.Precio)||0,
-        n: (f.Articulo||'').toLowerCase(), k: []
+        u: f.Unidad||'UN', p: parseFloat(f.Precio)||0, n: (f.Articulo||'').toLowerCase(), k: []
       };
       return { cod: cod, qty: parseFloat(f.UnidadesConsumidas)||1,
-        u: f.Unidad||artBase.u, art: artBase,
-        estado: f.EsSAP ? 'sap' : 'ok', alts: [] };
+        u: f.Unidad||artBase.u, art: artBase, estado: f.EsSAP?'sap':'ok', alts: [] };
     });
     sincronizarGridConItems();
-    var paxVal = cab.fields.Pensiones || 0;
-    document.getElementById('dc-pax').value = paxVal;
-    state.pax = paxVal;
+    state.pax = cab.fields.Pensiones || 0;
+    document.getElementById('dc-pax').value = state.pax;
     var ver = cab.fields.Version || 1;
     document.getElementById('h-badge').textContent = ver > 1 ? 'Corrección v'+ver : 'Cerrado';
     renderRight();
-    toast('Cierre del ' + fecha + ' — ' + state.items.length + ' artículos');
-  } catch(e) {
-    console.error('Error cargando cierre:', e);
-    toast('Error: ' + e.message, 'err');
-  }
+    toast('Cierre del '+fecha+' — '+state.items.length+' artículos');
+  } catch(e) { console.error('Error cargando cierre:',e); toast('Error: '+e.message,'err'); }
 }
 
 function limpiarGridSeleccion() {
@@ -1081,12 +1067,8 @@ function limpiarGridSeleccion() {
 function sincronizarGridConItems() {
   limpiarGridSeleccion();
   state.items.forEach(function(it) {
-    var card = document.querySelector('.acard[data-cod="' + it.cod + '"]');
-    if (card) {
-      card.classList.add('selected');
-      var v = card.querySelector('.ac-val');
-      if (v) v.textContent = fmtN(it.qty);
-    }
+    var card = document.querySelector('.acard[data-cod="'+it.cod+'"]');
+    if (card) { card.classList.add('selected'); var v=card.querySelector('.ac-val'); if(v) v.textContent=fmtN(it.qty); }
   });
 }
 document.getElementById('dc-pax').addEventListener('input',function(){state.pax=parseInt(this.value)||0;renderRight();});
@@ -1237,14 +1219,15 @@ async function guardarCierreSharePoint(datosCierre) {
   const listLinId = await getListId(siteId, 'DC_Lineas');
   const fechaISO = datosCierre.fecha + 'T00:00:00Z';
 
+  // Verificar si ya existe cierre para esa fecha/hotel
   // Graph no filtra fechas personalizadas → cargar todo y filtrar en JS
-  const cabRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$top=500');
-  const existentes = (cabRaw.value || []).filter(function(i) {
-    return String(i.fields.HotelID) === String(datosCierre.hotelId) &&
-           (i.fields.Fecha || '').slice(0,10) === datosCierre.fecha;
+  const cabRaw = await graphCall('/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500');
+  const existentes = (cabRaw.value||[]).filter(function(i){
+    return String(i.fields.HotelID)===String(datosCierre.hotelId) &&
+           (i.fields.Fecha||'').slice(0,10)===datosCierre.fecha;
   });
   existentes.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
-  const version = existentes.length > 0 ? ((existentes[0].fields.Version || 1) + 1) : 1;
+  const version = existentes.length > 0 ? ((existentes[0].fields.Version||1)+1) : 1;
   const esCorreccion = version > 1;
 
   // Crear cabecera
@@ -1427,9 +1410,7 @@ document.getElementById('h-hotel-nombre').addEventListener('click', function() {
 document.getElementById('btn-hist').addEventListener('click', async function() {
   var panel = document.getElementById('hist-panel');
   panel.style.display = 'flex';
-  // Poner fechas por defecto: último mes
-  var hoy = new Date();
-  var hace30 = new Date(hoy); hace30.setDate(hoy.getDate() - 30);
+  var hoy = new Date(); var hace30 = new Date(hoy); hace30.setDate(hoy.getDate()-30);
   var fmt = function(d){ return d.toISOString().slice(0,10); };
   document.getElementById('hist-hasta').value = fmt(hoy);
   document.getElementById('hist-desde').value = fmt(hace30);
@@ -1443,10 +1424,9 @@ async function histCargarYRender() {
     var desde = document.getElementById('hist-desde').value;
     var hasta = document.getElementById('hist-hasta').value;
     var cierres = await cargarHistorico();
-    // Filtrar por rango de fechas si están definidas
     if (desde || hasta) {
       cierres = cierres.filter(function(c) {
-        var f = (c.fields.Fecha || '').slice(0,10);
+        var f = (c.fields.Fecha||'').slice(0,10);
         if (desde && f < desde) return false;
         if (hasta && f > hasta) return false;
         return true;
@@ -1454,7 +1434,7 @@ async function histCargarYRender() {
     }
     renderHistorico(cierres);
   } catch(e) {
-    list.innerHTML = '<div style="text-align:center;padding:20px;color:#c13635">Error: ' + e.message + '</div>';
+    list.innerHTML = '<div style="text-align:center;padding:20px;color:#c13635">Error: '+e.message+'</div>';
   }
 }
 
@@ -1611,8 +1591,7 @@ document.getElementById('btn-close').addEventListener('click', async function() 
     var resultado = await guardarCierreSharePoint(datosCierre);
     document.getElementById('h-badge').textContent = resultado.esCorreccion ? 'Corregido' : 'Cerrado';
     toast('Cierre guardado' + (resultado.esCorreccion ? ' (correccion v' + resultado.version + ')' : ''));
-    state.items = [];
-    state.pax = 0;
+    state.items = []; state.pax = 0;
     document.getElementById('dc-pax').value = '';
     document.getElementById('h-badge').textContent = 'Borrador';
     limpiarGridSeleccion();
