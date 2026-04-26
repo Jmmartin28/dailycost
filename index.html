@@ -966,15 +966,24 @@ document.getElementById('lh-clear').addEventListener('click',()=>{
 const hoy=new Date().toISOString().slice(0,10);
 state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
+// Usamos focus+blur para detectar cuando el usuario termina de editar la fecha
+// 'change' en input[type=date] se dispara en cada pulsación de flecha en Edge
+var _fechaAntes = document.getElementById('dc-fecha').value;
+document.getElementById('dc-fecha').addEventListener('focus', function() {
+  _fechaAntes = this.value;
+});
 document.getElementById('dc-fecha').addEventListener('change', async function() {
   var fechaNueva = this.value;
+  // Solo actuar cuando la fecha esté completa (10 chars: YYYY-MM-DD)
+  if (!fechaNueva || fechaNueva.length < 10 || fechaNueva === _fechaAntes) return;
   if (state.items.length > 0) {
     if (!confirm('¿Descartar los artículos actuales y cargar el cierre del ' + fechaNueva + '?')) {
-      this.value = state.fecha; // revertir al anterior
+      this.value = _fechaAntes;
       return;
     }
   }
   state.fecha = fechaNueva;
+  _fechaAntes = fechaNueva;
   await intentarCargarCierreFecha(fechaNueva);
 });
 
@@ -986,44 +995,47 @@ async function intentarCargarCierreFecha(fecha) {
     const listCabId = await getListId(siteId, 'DC_Cabecera');
     const listLinId = await getListId(siteId, 'DC_Lineas');
     const fechaISO = fecha + 'T00:00:00Z';
-
-    // Limpiar grid y lista siempre al cambiar de fecha
     limpiarGridSeleccion();
     state.items = [];
     renderRight();
-
-    // Buscar cierres para esta fecha/hotel (Graph filtra por Fecha, nosotros por HotelID en JS)
     const rawCab = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
       '/items?$expand=fields&$top=50&$filter=' + encodeURIComponent("fields/Fecha eq '" + fechaISO + "'"));
     const cierresDia = (rawCab.value || []).filter(function(i) {
       return String(i.fields.HotelID) === String(currentHotel.HotelId);
     });
-
+    console.log('Cierres para', fecha, ':', cierresDia.length);
     if (cierresDia.length === 0) {
-      // Día sin cierre: borrador limpio
       document.getElementById('h-badge').textContent = 'Borrador';
       document.getElementById('dc-pax').value = '';
       state.pax = 0;
       toast('Día sin cierre — borrador nuevo');
       return;
     }
-
-    // Versión más reciente
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
-    // El id numérico de SharePoint está en cab.fields.id (campo calculado) o en cab.id (GUID)
-    // CierreId en DC_Lineas es el ID numérico del item de DC_Cabecera
     var cierreIdNum = cab.fields.id || cab.fields.ID;
-
-    // Cargar líneas del cierre
-    const rawLin = await graphCall('/sites/' + siteId + '/lists/' + listLinId +
-      '/items?$expand=fields&$top=500');
-    const lineas = (rawLin.value || []).filter(function(i) {
+    console.log('Cabecera:', JSON.stringify(cab.fields));
+    console.log('CierreId a buscar:', cierreIdNum);
+    if (!cierreIdNum) {
+      document.getElementById('dc-pax').value = cab.fields.Pensiones || 0;
+      state.pax = cab.fields.Pensiones || 0;
+      document.getElementById('h-badge').textContent = 'Cerrado (sin ID)';
+      renderRight();
+      toast('Cierre cargado sin lineas — falta campo id en DC_Cabecera', 'warn');
+      return;
+    }
+    var todasLineas = [];
+    var nextLin = '/sites/' + siteId + '/lists/' + listLinId + '/items?$expand=fields&$top=500';
+    while (nextLin) {
+      var rLin = await graphCall(nextLin.replace('https://graph.microsoft.com/v1.0',''));
+      todasLineas = todasLineas.concat(rLin.value || []);
+      nextLin = rLin['@odata.nextLink'] ? rLin['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+    }
+    var lineas = todasLineas.filter(function(i) {
       return String(i.fields.CierreId) === String(cierreIdNum) &&
              String(i.fields.HotelId) === String(currentHotel.HotelId);
     });
-
-    // Reconstruir state.items
+    console.log('Total lineas:', todasLineas.length, '| Del cierre:', lineas.length);
     state.items = lineas.map(function(lin) {
       var f = lin.fields;
       var cod = String(f.IdArticulo || '');
@@ -1032,32 +1044,24 @@ async function intentarCargarCierreFecha(fecha) {
         u: f.Unidad||'UN', p: parseFloat(f.Precio)||0,
         n: (f.Articulo||'').toLowerCase(), k: []
       };
-      return {
-        cod: cod, qty: parseFloat(f.UnidadesConsumidas)||1,
-        u: f.Unidad || artBase.u, art: artBase,
-        estado: f.EsSAP ? 'sap' : 'ok', alts: []
-      };
+      return { cod: cod, qty: parseFloat(f.UnidadesConsumidas)||1,
+        u: f.Unidad||artBase.u, art: artBase,
+        estado: f.EsSAP ? 'sap' : 'ok', alts: [] };
     });
-
-    // Sincronizar tarjetas del grid con las cantidades cargadas
     sincronizarGridConItems();
-
-    // Actualizar pax y badge
     var paxVal = cab.fields.Pensiones || 0;
     document.getElementById('dc-pax').value = paxVal;
     state.pax = paxVal;
     var ver = cab.fields.Version || 1;
-    document.getElementById('h-badge').textContent = 'v' + ver + (ver > 1 ? ' CORR' : '');
+    document.getElementById('h-badge').textContent = ver > 1 ? 'Corrección v'+ver : 'Cerrado';
     renderRight();
-    toast('Cierre del ' + fecha + ' cargado — ' + state.items.length + ' artículos');
-
+    toast('Cierre del ' + fecha + ' — ' + state.items.length + ' artículos cargados');
   } catch(e) {
-    console.error('Error cargando cierre por fecha:', e);
-    toast('Error al cargar cierre: ' + e.message, 'err');
+    console.error('Error cargando cierre:', e);
+    toast('Error: ' + e.message, 'err');
   }
 }
 
-// Limpia todas las tarjetas del grid (quita selected y pone 0)
 function limpiarGridSeleccion() {
   document.querySelectorAll('.acard.selected').forEach(function(c) {
     c.classList.remove('selected');
@@ -1066,9 +1070,8 @@ function limpiarGridSeleccion() {
   });
 }
 
-// Sincroniza el grid con state.items (marca tarjetas y pone cantidades)
 function sincronizarGridConItems() {
-  limpiarGridSeleccion(); // primero limpiar todo
+  limpiarGridSeleccion();
   state.items.forEach(function(it) {
     var card = document.querySelector('.acard[data-cod="' + it.cod + '"]');
     if (card) {
