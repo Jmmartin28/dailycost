@@ -1019,13 +1019,12 @@ async function intentarCargarCierreFecha(fecha) {
     }
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
-    // El ID numérico del item está en cab.id (no en cab.fields.id)
     var cierreIdNum = cab.id;
     if (!cierreIdNum) {
       state.pax = cab.fields.Pensiones || 0;
       document.getElementById('dc-pax').value = state.pax;
       document.getElementById('h-badge').textContent = 'Cerrado';
-      renderRight(); toast('Cierre encontrado', 'warn'); return;
+      renderRight(); return;
     }
     var todasLineas = [];
     var nextLin = '/sites/'+siteId+'/lists/'+listLinId+'/items?$expand=fields&$top=500';
@@ -1141,7 +1140,7 @@ async function getToken() {
     const res = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
     return res.accessToken;
   } catch(e) {
-    console.warn('Token silent falló, redirigiendo:', e.message);
+    console.warn('Token silent falló:', e.message);
     await msalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES, account });
     return null;
   }
@@ -1223,7 +1222,6 @@ async function guardarCierreSharePoint(datosCierre) {
 
   // Verificar si ya existe cierre para esa fecha/hotel
 
-  // Graph no filtra fechas personalizadas → cargar todo y filtrar en JS
   const cabRaw = await graphCall('/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500');
   const existentes = (cabRaw.value||[]).filter(function(i){
     return String(i.fields.HotelID)===String(datosCierre.hotelId) &&
@@ -1242,16 +1240,17 @@ async function guardarCierreSharePoint(datosCierre) {
     Pensiones: datosCierre.pensiones,
     UsuarioAutor: currentUser.username || currentUser.name,
     TotalCoste: datosCierre.totalCoste,
-    ArticulosPendientesSAP: datosCierre.pendientesSAP,
+    ArticulosPendientesSAP: datosCierre.pendientesSAP || '-',
     Estado: esCorreccion ? 'Corregido' : 'Cerrado',
     Version: version,
     EsCorreccion: esCorreccion
   };
-  // POST devuelve el item; el ID numérico está en cab.id (no en cab.fields.id)
   const cabCreado = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items', 'POST', { fields: cabFields });
-  // cab.id es el ID numérico como string (ej: "42"), que es lo que guardan las líneas en CierreId
-  const cierreNumId = cabCreado ? cabCreado.id : null;
-  console.log('Cabecera creada. ID:', cierreNumId, '| Respuesta:', JSON.stringify(cabCreado));
+  if (!cabCreado || cabCreado.error) {
+    throw new Error('Error creando cabecera: ' + (cabCreado && cabCreado.error ? cabCreado.error.message : 'sin respuesta'));
+  }
+  const cierreNumId = cabCreado.id;
+  console.log('Cabecera creada. CierreId:', cierreNumId);
 
   // Crear lineas
   for (var i = 0; i < datosCierre.lineas.length; i++) {
