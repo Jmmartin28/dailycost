@@ -958,10 +958,7 @@ document.getElementById('mic-btn').addEventListener('click',()=>{
 document.getElementById('lh-clear').addEventListener('click',()=>{
   if(!confirm('¿Borrar todo?'))return;
   state.items=[];
-  document.querySelectorAll('.acard.selected').forEach(c=>{
-    c.classList.remove('selected');
-    const v=c.querySelector('.ac-val');if(v)v.textContent='0';
-  });
+  limpiarGridSeleccion();
   renderRight();
 });
 
@@ -970,55 +967,68 @@ const hoy=new Date().toISOString().slice(0,10);
 state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
 document.getElementById('dc-fecha').addEventListener('change', async function() {
-  var fecha = this.value;
-  state.fecha = fecha;
-  // Si hay artículos en lista, preguntar antes de cargar cierre existente
+  var fechaNueva = this.value;
   if (state.items.length > 0) {
-    if (!confirm('¿Descartar los artículos actuales y cargar el cierre de ' + fecha + '?')) {
-      this.value = state.fecha; // revertir
+    if (!confirm('¿Descartar los artículos actuales y cargar el cierre del ' + fechaNueva + '?')) {
+      this.value = state.fecha; // revertir al anterior
       return;
     }
   }
-  await intentarCargarCierreFecha(fecha);
+  state.fecha = fechaNueva;
+  await intentarCargarCierreFecha(fechaNueva);
 });
 
 async function intentarCargarCierreFecha(fecha) {
   if (!currentHotel || !fecha) return;
   try {
+    toast('Buscando cierre...', null, 3000);
     const siteId = await getSiteId();
     const listCabId = await getListId(siteId, 'DC_Cabecera');
     const listLinId = await getListId(siteId, 'DC_Lineas');
     const fechaISO = fecha + 'T00:00:00Z';
-    // Buscar cierres para esta fecha/hotel
+
+    // Limpiar grid y lista siempre al cambiar de fecha
+    limpiarGridSeleccion();
+    state.items = [];
+    renderRight();
+
+    // Buscar cierres para esta fecha/hotel (Graph filtra por Fecha, nosotros por HotelID en JS)
     const rawCab = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
       '/items?$expand=fields&$top=50&$filter=' + encodeURIComponent("fields/Fecha eq '" + fechaISO + "'"));
     const cierresDia = (rawCab.value || []).filter(function(i) {
       return String(i.fields.HotelID) === String(currentHotel.HotelId);
     });
+
     if (cierresDia.length === 0) {
-      // Sin cierre: día nuevo, limpiar lista
-      state.items = [];
+      // Día sin cierre: borrador limpio
       document.getElementById('h-badge').textContent = 'Borrador';
-      renderRight();
+      document.getElementById('dc-pax').value = '';
+      state.pax = 0;
+      toast('Día sin cierre — borrador nuevo');
       return;
     }
-    // Tomar la versión más reciente
+
+    // Versión más reciente
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
-    var cierreId = parseInt(cab.fields.id || cab.id);
-    // Cargar líneas de ese cierre
+    // El id numérico de SharePoint está en cab.fields.id (campo calculado) o en cab.id (GUID)
+    // CierreId en DC_Lineas es el ID numérico del item de DC_Cabecera
+    var cierreIdNum = cab.fields.id || cab.fields.ID;
+
+    // Cargar líneas del cierre
     const rawLin = await graphCall('/sites/' + siteId + '/lists/' + listLinId +
       '/items?$expand=fields&$top=500');
     const lineas = (rawLin.value || []).filter(function(i) {
-      return String(i.fields.CierreId) === String(cierreId) &&
+      return String(i.fields.CierreId) === String(cierreIdNum) &&
              String(i.fields.HotelId) === String(currentHotel.HotelId);
     });
-    // Reconstruir state.items desde las líneas
+
+    // Reconstruir state.items
     state.items = lineas.map(function(lin) {
       var f = lin.fields;
-      var cod = f.IdArticulo || ('__SP__' + lin.id);
+      var cod = String(f.IdArticulo || '');
       var artBase = ARTICULOS.find(function(a){ return a.c === cod; }) || {
-        c: cod, d: f.Articulo||'', f: f.Familia||'', cc: f.CC||'',
+        c: cod, d: f.Articulo||'?', f: f.Familia||'', cc: f.CC||'',
         u: f.Unidad||'UN', p: parseFloat(f.Precio)||0,
         n: (f.Articulo||'').toLowerCase(), k: []
       };
@@ -1028,16 +1038,45 @@ async function intentarCargarCierreFecha(fecha) {
         estado: f.EsSAP ? 'sap' : 'ok', alts: []
       };
     });
-    // Actualizar pax del header
+
+    // Sincronizar tarjetas del grid con las cantidades cargadas
+    sincronizarGridConItems();
+
+    // Actualizar pax y badge
     var paxVal = cab.fields.Pensiones || 0;
     document.getElementById('dc-pax').value = paxVal;
     state.pax = paxVal;
-    document.getElementById('h-badge').textContent = 'Cargado v' + (cab.fields.Version||1);
+    var ver = cab.fields.Version || 1;
+    document.getElementById('h-badge').textContent = 'v' + ver + (ver > 1 ? ' CORR' : '');
     renderRight();
-    toast('Cierre del ' + fecha + ' cargado (' + state.items.length + ' artículos)');
+    toast('Cierre del ' + fecha + ' cargado — ' + state.items.length + ' artículos');
+
   } catch(e) {
     console.error('Error cargando cierre por fecha:', e);
+    toast('Error al cargar cierre: ' + e.message, 'err');
   }
+}
+
+// Limpia todas las tarjetas del grid (quita selected y pone 0)
+function limpiarGridSeleccion() {
+  document.querySelectorAll('.acard.selected').forEach(function(c) {
+    c.classList.remove('selected');
+    var v = c.querySelector('.ac-val');
+    if (v) v.textContent = '0';
+  });
+}
+
+// Sincroniza el grid con state.items (marca tarjetas y pone cantidades)
+function sincronizarGridConItems() {
+  limpiarGridSeleccion(); // primero limpiar todo
+  state.items.forEach(function(it) {
+    var card = document.querySelector('.acard[data-cod="' + it.cod + '"]');
+    if (card) {
+      card.classList.add('selected');
+      var v = card.querySelector('.ac-val');
+      if (v) v.textContent = fmtN(it.qty);
+    }
+  });
 }
 document.getElementById('dc-pax').addEventListener('input',function(){state.pax=parseInt(this.value)||0;renderRight();});
 
