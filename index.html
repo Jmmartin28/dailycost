@@ -1062,7 +1062,7 @@ async function graphCall(url, method, body) {
 
 async function getSiteId() {
   if (_siteId) return _siteId;
-  const r = await graphCall('/sites/sohohoteles.sharepoint.com:/sites/controldegestion');
+  const r = await graphCall('/sites/sohohoteles.sharepoint.com:/sites/controldegestion:');
   _siteId = r.id;
   return _siteId;
 }
