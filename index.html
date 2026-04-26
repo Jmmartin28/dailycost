@@ -966,15 +966,12 @@ document.getElementById('lh-clear').addEventListener('click',()=>{
 const hoy=new Date().toISOString().slice(0,10);
 state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
-// Usamos focus+blur para detectar cuando el usuario termina de editar la fecha
-// 'change' en input[type=date] se dispara en cada pulsación de flecha en Edge
 var _fechaAntes = document.getElementById('dc-fecha').value;
 document.getElementById('dc-fecha').addEventListener('focus', function() {
   _fechaAntes = this.value;
 });
 document.getElementById('dc-fecha').addEventListener('change', async function() {
   var fechaNueva = this.value;
-  // Solo actuar cuando la fecha esté completa (10 chars: YYYY-MM-DD)
   if (!fechaNueva || fechaNueva.length < 10 || fechaNueva === _fechaAntes) return;
   if (state.items.length > 0) {
     if (!confirm('¿Descartar los artículos actuales y cargar el cierre del ' + fechaNueva + '?')) {
@@ -995,15 +992,28 @@ async function intentarCargarCierreFecha(fecha) {
     const listCabId = await getListId(siteId, 'DC_Cabecera');
     const listLinId = await getListId(siteId, 'DC_Lineas');
     const fechaISO = fecha + 'T00:00:00Z';
+
     limpiarGridSeleccion();
     state.items = [];
     renderRight();
-    const rawCab = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
-      '/items?$expand=fields&$top=50&$filter=' + encodeURIComponent("fields/Fecha eq '" + fechaISO + "'"));
-    const cierresDia = (rawCab.value || []).filter(function(i) {
-      return String(i.fields.HotelID) === String(currentHotel.HotelId);
+
+    // Graph no filtra por columnas de fecha personalizadas → cargar todo y filtrar en JS
+    var todasCab = [];
+    var nextCab = '/sites/' + siteId + '/lists/' + listCabId + '/items?$expand=fields&$top=500';
+    while (nextCab) {
+      var rCab = await graphCall(nextCab.replace('https://graph.microsoft.com/v1.0',''));
+      todasCab = todasCab.concat(rCab.value || []);
+      nextCab = rCab['@odata.nextLink'] ? rCab['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+    }
+
+    // Filtrar por hotel y fecha en JS
+    var cierresDia = todasCab.filter(function(i) {
+      var f = i.fields;
+      var fechaItem = (f.Fecha || '').slice(0, 10);
+      return String(f.HotelID) === String(currentHotel.HotelId) && fechaItem === fecha;
     });
-    console.log('Cierres para', fecha, ':', cierresDia.length);
+    console.log('Cierres para', fecha, ':', cierresDia.length, '| Total cabeceras:', todasCab.length);
+
     if (cierresDia.length === 0) {
       document.getElementById('h-badge').textContent = 'Borrador';
       document.getElementById('dc-pax').value = '';
@@ -1011,19 +1021,22 @@ async function intentarCargarCierreFecha(fecha) {
       toast('Día sin cierre — borrador nuevo');
       return;
     }
+
     cierresDia.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
     var cab = cierresDia[0];
     var cierreIdNum = cab.fields.id || cab.fields.ID;
-    console.log('Cabecera:', JSON.stringify(cab.fields));
-    console.log('CierreId a buscar:', cierreIdNum);
+    console.log('Cabecera encontrada. ID:', cierreIdNum, '| Campos:', JSON.stringify(cab.fields));
+
     if (!cierreIdNum) {
       document.getElementById('dc-pax').value = cab.fields.Pensiones || 0;
       state.pax = cab.fields.Pensiones || 0;
       document.getElementById('h-badge').textContent = 'Cerrado (sin ID)';
       renderRight();
-      toast('Cierre cargado sin lineas — falta campo id en DC_Cabecera', 'warn');
+      toast('Cierre encontrado pero sin campo id — abre consola para ver campos disponibles', 'warn');
       return;
     }
+
+    // Cargar líneas sin $filter
     var todasLineas = [];
     var nextLin = '/sites/' + siteId + '/lists/' + listLinId + '/items?$expand=fields&$top=500';
     while (nextLin) {
@@ -1035,7 +1048,8 @@ async function intentarCargarCierreFecha(fecha) {
       return String(i.fields.CierreId) === String(cierreIdNum) &&
              String(i.fields.HotelId) === String(currentHotel.HotelId);
     });
-    console.log('Total lineas:', todasLineas.length, '| Del cierre:', lineas.length);
+    console.log('Lineas del cierre:', lineas.length, '| CierreId buscado:', cierreIdNum);
+
     state.items = lineas.map(function(lin) {
       var f = lin.fields;
       var cod = String(f.IdArticulo || '');
@@ -1048,6 +1062,7 @@ async function intentarCargarCierreFecha(fecha) {
         u: f.Unidad||artBase.u, art: artBase,
         estado: f.EsSAP ? 'sap' : 'ok', alts: [] };
     });
+
     sincronizarGridConItems();
     var paxVal = cab.fields.Pensiones || 0;
     document.getElementById('dc-pax').value = paxVal;
@@ -1055,7 +1070,8 @@ async function intentarCargarCierreFecha(fecha) {
     var ver = cab.fields.Version || 1;
     document.getElementById('h-badge').textContent = ver > 1 ? 'Corrección v'+ver : 'Cerrado';
     renderRight();
-    toast('Cierre del ' + fecha + ' — ' + state.items.length + ' artículos cargados');
+    toast('Cierre del ' + fecha + ' — ' + state.items.length + ' artículos');
+
   } catch(e) {
     console.error('Error cargando cierre:', e);
     toast('Error: ' + e.message, 'err');
@@ -1065,8 +1081,7 @@ async function intentarCargarCierreFecha(fecha) {
 function limpiarGridSeleccion() {
   document.querySelectorAll('.acard.selected').forEach(function(c) {
     c.classList.remove('selected');
-    var v = c.querySelector('.ac-val');
-    if (v) v.textContent = '0';
+    var v = c.querySelector('.ac-val'); if (v) v.textContent = '0';
   });
 }
 
@@ -1229,12 +1244,12 @@ async function guardarCierreSharePoint(datosCierre) {
   const listLinId = await getListId(siteId, 'DC_Lineas');
   const fechaISO = datosCierre.fecha + 'T00:00:00Z';
 
-  // Verificar si ya existe cierre para esa fecha/hotel
-  // Detectar si existe cierre previo para esta fecha/hotel (sin $filter numérico)
-  const existRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
-    '/items?$expand=fields&$top=50&$filter=' + encodeURIComponent("fields/Fecha eq '" + fechaISO + "'"));
-  const existentes = (existRaw.value || []).filter(function(i) {
-    return String(i.fields.HotelID) === String(datosCierre.hotelId);
+  // Graph no filtra por fecha personalizada → cargar recientes y filtrar en JS
+  const cabRaw = await graphCall('/sites/' + siteId + '/lists/' + listCabId +
+    '/items?$expand=fields&$top=500');
+  const existentes = (cabRaw.value || []).filter(function(i) {
+    return String(i.fields.HotelID) === String(datosCierre.hotelId) &&
+           (i.fields.Fecha || '').slice(0,10) === datosCierre.fecha;
   });
   existentes.sort(function(a,b){ return (b.fields.Version||1)-(a.fields.Version||1); });
   const version = existentes.length > 0 ? ((existentes[0].fields.Version || 1) + 1) : 1;
