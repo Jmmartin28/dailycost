@@ -1642,6 +1642,121 @@ msalInstance.initialize().then(function() {
   if (err) { err.style.display='block'; err.textContent='Error auth: '+e.message; }
 });
 
+// ══ VISTA CORPORATIVO ══
+var _corpHoteles = [];
+
+async function mostrarVistaCorporativo(hoteles) {
+  _corpHoteles = hoteles;
+  document.getElementById('corp-overlay').style.display = 'block';
+  document.getElementById('hotel-select-overlay').style.display = 'none';
+  var hoy = new Date().toISOString().slice(0,10);
+  var cd = document.getElementById('corp-desde');
+  var ch = document.getElementById('corp-hasta');
+  if (!cd.value) cd.value = hoy;
+  if (!ch.value) ch.value = hoy;
+  await renderCorporativo();
+  document.getElementById('corp-btn-hoy').onclick = async function() {
+    var h = new Date().toISOString().slice(0,10);
+    cd.value = h; ch.value = h; await renderCorporativo();
+  };
+  document.getElementById('corp-btn-semana').onclick = async function() {
+    var t = new Date(), f = new Date(); f.setDate(t.getDate()-6);
+    cd.value = f.toISOString().slice(0,10); ch.value = t.toISOString().slice(0,10); await renderCorporativo();
+  };
+  document.getElementById('corp-btn-mes').onclick = async function() {
+    var t = new Date(), f = new Date(); f.setDate(t.getDate()-29);
+    cd.value = f.toISOString().slice(0,10); ch.value = t.toISOString().slice(0,10); await renderCorporativo();
+  };
+  cd.onchange = renderCorporativo;
+  ch.onchange = renderCorporativo;
+  document.getElementById('corp-logout').onclick = function() { document.getElementById('btn-logout').click(); };
+}
+
+async function renderCorporativo() {
+  var hoteles = _corpHoteles;
+  var desde = document.getElementById('corp-desde').value;
+  var hasta = document.getElementById('corp-hasta').value;
+  if (!desde || !hasta) return;
+  var resumen = document.getElementById('corp-resumen');
+  var hotelGrid = document.getElementById('corp-hoteles');
+  resumen.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:12px;color:#888;font-size:12px">Cargando...</div>';
+  hotelGrid.innerHTML = '';
+  try {
+    const siteId = await getSiteId();
+    const listCabId = await getListId(siteId, 'DC_Cabecera');
+    var todasCab = [], nextCab = '/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500';
+    while (nextCab) {
+      var r = await graphCall(nextCab.replace('https://graph.microsoft.com/v1.0',''));
+      todasCab = todasCab.concat(r.value || []);
+      nextCab = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+    }
+    var enRango = todasCab.filter(function(c) {
+      var f = (c.fields.Fecha||'').slice(0,10); return f >= desde && f <= hasta;
+    });
+    var porHotel = {};
+    enRango.forEach(function(c) {
+      var hid = String(c.fields.HotelID), fecha = (c.fields.Fecha||'').slice(0,10);
+      if (!porHotel[hid]) porHotel[hid] = {};
+      if (!porHotel[hid][fecha] || (c.fields.Version||1) > (porHotel[hid][fecha].fields.Version||1))
+        porHotel[hid][fecha] = c;
+    });
+    var d1 = new Date(desde), d2 = new Date(hasta);
+    var diasRango = Math.round((d2-d1)/(1000*60*60*24)) + 1, esUnDia = diasRango === 1;
+    var totalCoste = 0, totalPax = 0, hotelesCerrados = new Set();
+    hoteles.forEach(function(h) {
+      var dias = porHotel[String(h.HotelId)] || {};
+      Object.values(dias).forEach(function(c) {
+        totalCoste += c.fields.TotalCoste||0; totalPax += c.fields.Pensiones||0;
+        hotelesCerrados.add(String(h.HotelId));
+      });
+    });
+    var ratioCadena = totalPax > 0 ? totalCoste/totalPax : 0;
+    var mediaCoste = hoteles.length > 0 && diasRango > 0 ? totalCoste/hoteles.length/diasRango : 0;
+    resumen.innerHTML =
+      kpiCard('Coste total', fmtE(totalCoste), '#1a1a1a') +
+      kpiCard('Pensiones totales', fmtN(totalPax), '#1a1a1a') +
+      kpiCard('Ratio €/pax', fmtE(ratioCadena), '#1a1a1a') +
+      (esUnDia
+        ? kpiCard('Hoteles cerrados', hotelesCerrados.size+' / '+hoteles.length, hotelesCerrados.size===hoteles.length?'#1d9e75':'#e67e22')
+        : kpiCard('Media diaria cadena', fmtE(mediaCoste), '#1d9e75'));
+    hoteles.forEach(function(h) {
+      var dias = porHotel[String(h.HotelId)]||{}, numDias = Object.keys(dias).length;
+      var costeTotal=0, paxTotal=0;
+      Object.values(dias).forEach(function(c){ costeTotal+=c.fields.TotalCoste||0; paxTotal+=c.fields.Pensiones||0; });
+      var ratio = paxTotal>0?costeTotal/paxTotal:0, mediaD = diasRango>0?costeTotal/diasRango:0;
+      var cerradoHoy = esUnDia && dias[desde], ver = cerradoHoy?(dias[desde].fields.Version||1):0;
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#fff;border-radius:12px;padding:16px 18px;cursor:pointer;transition:box-shadow .15s;border:1.5px solid '+(esUnDia?(cerradoHoy?'#1d9e75':'#e8e8e3'):'#e8e8e3');
+      var badge = esUnDia
+        ? '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:'+(cerradoHoy?'#e8f7f1':'#f4f4f0')+';color:'+(cerradoHoy?'#1d9e75':'#888')+'">'+(cerradoHoy?(ver>1?'CORRECCIÓN v'+ver:'CERRADO'):'PENDIENTE')+'</span>'
+        : '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:#f0f8ff;color:#3a7bd5">'+numDias+' días</span>';
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'+
+          '<div style="font-size:14px;font-weight:800;color:#1a1a1a">'+h.Nombre+'</div>'+badge+
+        '</div>'+(numDias>0
+          ? '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px">'+
+              '<div><div style="color:#888;margin-bottom:2px">COSTE</div><div style="font-weight:700">'+fmtE(costeTotal)+'</div></div>'+
+              '<div><div style="color:#888;margin-bottom:2px">RATIO</div><div style="font-weight:700">'+fmtE(ratio)+'</div></div>'+
+              '<div><div style="color:#888;margin-bottom:2px">'+(esUnDia?'PENSIONES':'MEDIA/DÍA')+'</div><div style="font-weight:700">'+(esUnDia?fmtN(paxTotal):fmtE(mediaD))+'</div></div>'+
+            '</div>'
+          : '<div style="font-size:12px;color:#bbb;padding:8px 0">Sin datos en este período</div>')+
+        '<div style="margin-top:12px;font-size:11px;color:#1d9e75;font-weight:700">→ Entrar en '+h.Nombre+'</div>';
+      card.addEventListener('mouseover', function(){ card.style.boxShadow='0 4px 16px rgba(0,0,0,.08)'; });
+      card.addEventListener('mouseout', function(){ card.style.boxShadow='none'; });
+      card.addEventListener('click', function(){ seleccionarHotel(h); });
+      hotelGrid.appendChild(card);
+    });
+  } catch(e) {
+    resumen.innerHTML = '<div style="color:#c13635;padding:10px;grid-column:1/-1">Error: '+e.message+'</div>';
+  }
+}
+
+function kpiCard(label, valor, color) {
+  return '<div style="background:#fff;border-radius:10px;padding:14px 16px;border:1.5px solid #e8e8e3">'+
+    '<div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:6px">'+label.toUpperCase()+'</div>'+
+    '<div style="font-size:18px;font-weight:800;color:'+color+'">'+valor+'</div>'+
+  '</div>';
+}
 
 </script>
 
