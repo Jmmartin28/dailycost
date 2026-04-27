@@ -1800,7 +1800,9 @@ async function renderCorporativo(){
     var d1=new Date(desde),d2=new Date(hasta),diasRango=Math.round((d2-d1)/(1000*60*60*24))+1,esUnDia=diasRango===1;
     var totalCoste=0,totalPax=0,hotelesCerrados=new Set();
     hoteles.forEach(function(h){var dias=porHotel[String(h.HotelId)]||{};Object.values(dias).forEach(function(c){totalCoste+=c.fields.TotalCoste||0;totalPax+=c.fields.Pensiones||0;hotelesCerrados.add(String(h.HotelId));});});
-    var ratioCadena=totalPax>0?totalCoste/totalPax:0,mediaCoste=hoteles.length>0&&diasRango>0?totalCoste/hoteles.length/diasRango:0;
+    var totalCierres = 0;
+    hoteles.forEach(function(h){ totalCierres += Object.keys(porHotel[String(h.HotelId)]||{}).length; });
+    var ratioCadena=totalPax>0?totalCoste/totalPax:0,mediaCoste=totalCierres>0?totalCoste/totalCierres:0;
     resumen.innerHTML=kpiCard('Coste total',fmtE(totalCoste),'#1a1a1a')+kpiCard('Pensiones totales',fmtN(totalPax),'#1a1a1a')+kpiCard('Ratio €/pax',fmtE(ratioCadena),'#1a1a1a')+(esUnDia?kpiCard('Hoteles cerrados',hotelesCerrados.size+' / '+hoteles.length,hotelesCerrados.size===hoteles.length?'#1d9e75':'#e67e22'):kpiCard('Media diaria cadena',fmtE(mediaCoste),'#1d9e75'));
     hoteles.forEach(function(h){
       var dias=porHotel[String(h.HotelId)]||{},numDias=Object.keys(dias).length,costeTotal=0,paxTotal=0;
