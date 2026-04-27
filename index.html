@@ -1243,7 +1243,7 @@ async function guardarCierreSharePoint(datosCierre) {
     Art_x00ed_culosPendientesSAP: datosCierre.pendientesSAP || '-',
     Estado: esCorreccion ? 'Corregido' : 'Cerrado',
     Version: version,
-    EsCorreccion: esCorreccion
+    EsCorrecion: esCorreccion
   };
   const cabCreado = await graphCall('/sites/' + siteId + '/lists/' + listCabId + '/items', 'POST', { fields: cabFields });
   if (!cabCreado || cabCreado.error) {
