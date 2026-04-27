@@ -1243,6 +1243,8 @@ async function cargarArticulosSharePoint(hotelId) {
     ARTICULOS.push.apply(ARTICULOS, arts);
     toast('Articulos cargados: ' + arts.length);
     generarChipsFamilias(); renderGrid(ARTICULOS); aplicarFiltro();
+    // Cargar cierre de hoy automáticamente si existe
+    await intentarCargarCierreFecha(state.fecha);
   } catch(e) {
     console.error('Error cargando articulos:', e);
     toast('Error cargando articulos - usando listado local', 'warn');
