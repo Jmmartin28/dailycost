@@ -1472,23 +1472,18 @@ async function cargarHotelesUsuario() {
       return lista.split(';').map(function(e){ return e.trim().toLowerCase(); }).indexOf(email) >= 0;
     }
 
-    // ¿Es corporativo? → está en el registro HotelId=0
     const corporativo = todos.find(function(h){ return h.HotelId === 0 && emailEnLista(h.DestinatariosCorreo, email); });
     if (corporativo) {
-      // Corporativo → ve todos los hoteles reales (HotelId > 0) + una opción "Todos"
-      const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; });
-      return hotelesReales;
+      const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; })
+        .sort(function(a,b){ return a.Nombre.localeCompare(b.Nombre); });
+      return { tipo: 'corporativo', hoteles: hotelesReales };
     }
-
-    // ¿Está en algún hotel concreto?
     const misHoteles = todos.filter(function(h){ return h.HotelId > 0 && emailEnLista(h.DestinatariosCorreo, email); });
-    if (misHoteles.length > 0) return misHoteles;
-
-    // Fallback: sin acceso configurado → mostrar error
-    return [];
+    if (misHoteles.length > 0) return { tipo: 'hotel', hoteles: misHoteles };
+    return { tipo: 'sinAcceso', hoteles: [] };
   } catch(e) {
     console.error('Error cargando hoteles:', e);
-    return [{ HotelId: 80, Nombre: 'Portomagno' }];
+    return { tipo: 'sinAcceso', hoteles: [] };
   }
 }
 
@@ -1506,7 +1501,11 @@ function seleccionarHotel(hotel) {
   cargarArticulosSharePoint(hotel.HotelId);
   // Botón volver al panel corporativo
   var btnVolver = document.getElementById('btn-volver-corp');
-  if (btnVolver) btnVolver.style.display = hotelesDisponibles.length > 1 ? 'inline-flex' : 'none';
+  if (btnVolver) {
+    var listaCorp = hotelesDisponibles.length > 0 ? hotelesDisponibles : _corpHoteles;
+    btnVolver.style.display = listaCorp.length > 0 ? 'block' : 'none';
+    btnVolver.onclick = function(){ mostrarSelectorDestino(true, listaCorp); };
+  }
 }
 
 // INIT APP tras login
