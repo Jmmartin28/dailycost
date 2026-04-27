@@ -171,6 +171,7 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
 }
 </style>
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -230,7 +231,10 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
     <div style="padding:14px 20px;border-bottom:1px solid #eee">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="font-size:15px;font-weight:700">Histórico de cierres</div>
-        <button id="hist-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888">×</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button id="hist-btn-graf" style="background:#1a1a1a;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">📈 Gráfico</button>
+          <button id="hist-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888">×</button>
+        </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <div id="hist-hotel-sel" style="display:none;width:100%;margin-bottom:6px">
@@ -669,9 +673,38 @@ function renderGrid(arts){
       '</div>';
     card.querySelector('.dec').addEventListener('click',e=>{e.stopPropagation();incQty(a.c,-1);});
     card.querySelector('.inc').addEventListener('click',e=>{e.stopPropagation();incQty(a.c,1);});
-    card.querySelector('.ac-val').addEventListener('click',e=>{
+    card.querySelector('.ac-val').addEventListener('click', function(e) {
       e.stopPropagation();
-      abrirModal(a,qty,v=>{ if(v!=null)setQty(a.c,v); });
+      var span = card.querySelector('.ac-val');
+      var actual = parseFloat(String(span.textContent).replace(/\./g,'').replace(',','.')) || 0;
+      // Crear input temporal sobre el span
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'decimal';
+      input.value = actual > 0 ? String(actual) : '';
+      input.placeholder = '0';
+      input.style.cssText = 'width:100%;height:100%;text-align:center;font-weight:700;font-size:13px;border:none;outline:2px solid #1d9e75;background:#f0fbf6;color:#0d7c5a;border-radius:0;padding:0';
+      span.textContent = '';
+      span.appendChild(input);
+      input.focus();
+      input.select();
+      function confirmar() {
+        var v = parseFloat(input.value.replace(',','.'));
+        span.innerHTML = '';
+        if (!isNaN(v) && v >= 0) {
+          setQty(a.c, v);
+        } else {
+          var qActual = 0;
+          var it = state.items.find(function(i){ return i.cod === a.c; });
+          if (it) qActual = it.qty;
+          span.textContent = fmtN(qActual) || '0';
+        }
+      }
+      input.addEventListener('blur', confirmar);
+      input.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+        if (ev.key === 'Escape') { input.value = ''; input.blur(); }
+      });
     });
     card.querySelector('.ac-star').addEventListener('click',e=>{
       e.stopPropagation();
@@ -1436,11 +1469,16 @@ async function histCargarYRender() {
       });
     }
     renderHistorico(cierres);
+    // Guardar cierres para el gráfico
+    window._histCierresActuales = cierres;
   } catch(e) {
     list.innerHTML = '<div style="text-align:center;padding:20px;color:#c13635">Error: '+e.message+'</div>';
   }
 }
 document.getElementById('hist-filtrar').addEventListener('click', histCargarYRender);
+document.getElementById('hist-btn-graf').addEventListener('click', function() {
+  abrirGraficoHistorico(window._histCierresActuales || []);
+});
 document.getElementById('hist-todo').addEventListener('click', async function() {
   document.getElementById('hist-desde').value = '';
   document.getElementById('hist-hasta').value = '';
@@ -1641,6 +1679,96 @@ msalInstance.initialize().then(function() {
   if (err) { err.style.display='block'; err.textContent='Error auth: '+e.message; }
 });
 
+// ── GRÁFICO HISTÓRICO ──
+var _grafChart = null;
+var _grafCierres = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('graf-close').addEventListener('click', function() {
+    document.getElementById('graf-overlay').style.display = 'none';
+    if (_grafChart) { _grafChart.destroy(); _grafChart = null; }
+  });
+});
+
+// Se llama desde histCargarYRender después de renderHistorico
+function abrirGraficoHistorico(cierres) {
+  if (!cierres || !cierres.length) { toast('Sin datos para graficar', 'warn'); return; }
+  _grafCierres = cierres;
+  // Ordenar por fecha asc
+  var datos = cierres.map(function(c) {
+    return {
+      fecha: (c.fields.Fecha||'').slice(0,10),
+      ratio: c.fields.Pensiones > 0 ? c.fields.TotalCoste / c.fields.Pensiones : 0,
+      coste: c.fields.TotalCoste || 0,
+      pax: c.fields.Pensiones || 0
+    };
+  }).filter(function(d){ return d.fecha; })
+    .sort(function(a,b){ return a.fecha.localeCompare(b.fecha); });
+
+  var labels = datos.map(function(d){ return d.fecha.slice(5); }); // MM-DD
+  var ratios = datos.map(function(d){ return d.ratio; });
+  var media = ratios.reduce(function(s,v){ return s+v; }, 0) / ratios.length;
+
+  var overlay = document.getElementById('graf-overlay');
+  overlay.style.display = 'flex';
+
+  if (_grafChart) { _grafChart.destroy(); _grafChart = null; }
+
+  var ctx = document.getElementById('graf-canvas').getContext('2d');
+  _grafChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Ratio €/pax',
+          data: ratios,
+          borderColor: '#e74c3c',
+          backgroundColor: 'rgba(231,76,60,.08)',
+          tension: 0.3,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          fill: true,
+          borderWidth: 2
+        },
+        {
+          label: 'Media',
+          data: datos.map(function(){ return media; }),
+          borderColor: '#f5c518',
+          borderDash: [6,4],
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' €';
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { font: { size: 10 }, maxRotation: 45 } },
+        y: {
+          ticks: {
+            font: { size: 10 },
+            callback: function(v){ return v.toFixed(2) + ' €'; }
+          }
+        }
+      }
+    }
+  });
+}
+
 var _corpHoteles = [];
 async function mostrarVistaCorporativo(hoteles) {
   _corpHoteles = hoteles;
@@ -1712,6 +1840,19 @@ function kpiCard(label,valor,color){return '<div style="background:#fff;border-r
     <div id="corp-resumen" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px"></div>
     <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:12px">HOTELES</div>
     <div id="corp-hoteles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px"></div>
+  </div>
+</div>
+
+<!-- MODAL GRÁFICO HISTÓRICO -->
+<div id="graf-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:800px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="font-size:15px;font-weight:700" id="graf-title">Evolución ratio €/pax</div>
+      <button id="graf-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888">×</button>
+    </div>
+    <div style="position:relative;height:320px">
+      <canvas id="graf-canvas"></canvas>
+    </div>
   </div>
 </div>
 </body>
