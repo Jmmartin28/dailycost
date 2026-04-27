@@ -1392,7 +1392,7 @@ document.getElementById('btn-logout').addEventListener('click', function() {
 // Click en nombre hotel → volver al panel corporativo
 document.getElementById('h-hotel-nombre').addEventListener('click', function() {
   if (!hotelesDisponibles || hotelesDisponibles.length <= 1) return;
-  mostrarVistaCorporativo(hotelesDisponibles);
+  mostrarSelectorDestino(true, hotelesDisponibles);
 });
 
 document.getElementById('btn-hist').addEventListener('click', async function() {
@@ -1472,23 +1472,18 @@ async function cargarHotelesUsuario() {
       return lista.split(';').map(function(e){ return e.trim().toLowerCase(); }).indexOf(email) >= 0;
     }
 
-    // ¿Es corporativo? → está en el registro HotelId=0
     const corporativo = todos.find(function(h){ return h.HotelId === 0 && emailEnLista(h.DestinatariosCorreo, email); });
     if (corporativo) {
-      // Corporativo → ve todos los hoteles reales (HotelId > 0) + una opción "Todos"
-      const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; });
-      return hotelesReales;
+      const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; })
+        .sort(function(a,b){ return a.Nombre.localeCompare(b.Nombre); });
+      return { tipo: 'corporativo', hoteles: hotelesReales };
     }
-
-    // ¿Está en algún hotel concreto?
     const misHoteles = todos.filter(function(h){ return h.HotelId > 0 && emailEnLista(h.DestinatariosCorreo, email); });
-    if (misHoteles.length > 0) return misHoteles;
-
-    // Fallback: sin acceso configurado → mostrar error
-    return [];
+    if (misHoteles.length > 0) return { tipo: 'hotel', hoteles: misHoteles };
+    return { tipo: 'sinAcceso', hoteles: [] };
   } catch(e) {
     console.error('Error cargando hoteles:', e);
-    return [{ HotelId: 80, Nombre: 'Portomagno' }];
+    return { tipo: 'sinAcceso', hoteles: [] };
   }
 }
 
@@ -1504,9 +1499,17 @@ function seleccionarHotel(hotel) {
   limpiarGridSeleccion();
   renderRight();
   cargarArticulosSharePoint(hotel.HotelId);
-  // Botón volver al panel corporativo
   var btnVolver = document.getElementById('btn-volver-corp');
-  if (btnVolver) btnVolver.style.display = hotelesDisponibles.length > 1 ? 'inline-flex' : 'none';
+  if (btnVolver) {
+    btnVolver.style.display = hotelesDisponibles.length > 1 ? 'inline-flex' : 'none';
+    btnVolver.onclick = function(){ mostrarSelectorDestino(true, hotelesDisponibles); };
+  }
+  var hEl = document.getElementById('h-hotel-nombre');
+  if (hotelesDisponibles.length > 1) {
+    hEl.style.cursor = 'pointer';
+    hEl.title = 'Volver al panel';
+    hEl.style.textDecoration = 'underline dotted';
+  }
 }
 
 // INIT APP tras login
@@ -1527,9 +1530,6 @@ async function initApp() {
     document.getElementById('login-error').textContent = 'Tu cuenta no tiene acceso. Contacta con el administrador.';
     currentUser = null; return;
   }
-  if (resultado.tipo === 'corporativo') {
-    mostrarVistaCorporativo(resultado.hoteles); return;
-  }
   if (resultado.tipo === 'hotel' && resultado.hoteles.length === 1) {
     seleccionarHotel(resultado.hoteles[0]); return;
   }
@@ -1537,7 +1537,7 @@ async function initApp() {
 }
 
 function mostrarSelectorDestino(esCorporativo, hoteles) {
-  if (!hoteles || !hoteles.forEach) {
+  if (!hoteles || !Array.isArray(hoteles)) {
     console.error('mostrarSelectorDestino: hoteles inválido', hoteles); return;
   }
   var overlay = document.getElementById('hotel-select-overlay');
@@ -1648,10 +1648,7 @@ msalInstance.initialize().then(function() {
 <div id="corp-overlay" style="display:none;position:fixed;inset:0;background:#f0f0ec;z-index:150;overflow-y:auto;padding:24px">
   <div style="max-width:960px;margin:0 auto">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-      <div>
-        <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:4px">DAILY COST · CORPORATIVO</div>
-        <div style="font-size:22px;font-weight:800;color:#1a1a1a">Soho Boutique Hotels</div>
-      </div>
+      <div><div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:4px">DAILY COST · CORPORATIVO</div><div style="font-size:22px;font-weight:800;color:#1a1a1a">Soho Boutique Hotels</div></div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:6px;background:#fff;border:1.5px solid #ddd;border-radius:8px;padding:6px 10px">
           <span style="font-size:10px;font-weight:700;color:#888">DESDE</span>
