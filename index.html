@@ -234,6 +234,10 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
         <button id="hist-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888">×</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div id="hist-hotel-sel" style="display:none;gap:8px;align-items:center;width:100%;margin-bottom:8px">
+          <label style="font-size:11px;color:#888;font-weight:700">HOTEL</label>
+          <select id="hist-hotel-select" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;flex:1"></select>
+        </div>
         <label style="font-size:11px;color:#888;font-weight:700">DESDE</label>
         <input type="date" id="hist-desde" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px">
         <label style="font-size:11px;color:#888;font-weight:700">HASTA</label>
@@ -1218,7 +1222,7 @@ async function guardarCierreSharePoint(datosCierre) {
   const siteId = await getSiteId();
   const listCabId = await getListId(siteId, 'DC_Cabecera');
   const listLinId = await getListId(siteId, 'DC_Lineas');
-  const fechaISO = datosCierre.fecha + 'T00:00:00Z';
+  const fechaISO = datosCierre.fecha + 'T12:00:00Z';
 
   // Verificar si ya existe cierre para esa fecha/hotel
 
@@ -1389,44 +1393,50 @@ document.getElementById('btn-logout').addEventListener('click', function() {
 });
 
 // HISTORICO
-// Click en nombre del hotel → abre selector (solo corporativos con >1 hotel)
+// Click en nombre del hotel → vuelve al panel corporativo (solo corporativos)
 document.getElementById('h-hotel-nombre').addEventListener('click', function() {
   if (!hotelesDisponibles || hotelesDisponibles.length <= 1) return;
-  var overlay = document.getElementById('hotel-select-overlay');
-  var list = document.getElementById('hotel-select-list');
-  list.innerHTML = '';
-  hotelesDisponibles.forEach(function(h) {
-    var esActual = currentHotel && currentHotel.HotelId === h.HotelId;
-    var btn = document.createElement('button');
-    btn.textContent = h.Nombre + (esActual ? ' ✓' : '');
-    btn.style.cssText = 'padding:12px;border:1.5px solid ' + (esActual ? '#1d9e75' : '#e8e8e3') +
-      ';border-radius:8px;background:' + (esActual ? '#f0fbf6' : '#fff') +
-      ';font-size:14px;font-weight:600;cursor:pointer;text-align:left;width:100%';
-    if (!esActual) {
-      btn.addEventListener('mouseover', function(){ btn.style.background='#f4f4f0'; });
-      btn.addEventListener('mouseout', function(){ btn.style.background='#fff'; });
-      btn.addEventListener('click', function(){ seleccionarHotel(h); });
-    }
-    list.appendChild(btn);
-  });
-  overlay.style.display = 'flex';
+  mostrarVistaCorporativo(hotelesDisponibles);
 });
 
 document.getElementById('btn-hist').addEventListener('click', async function() {
   document.getElementById('hist-panel').style.display = 'flex';
+  // Si corporativo: mostrar selector de hotel
+  var histHotelSel = document.getElementById('hist-hotel-sel');
+  var histHotelSelect = document.getElementById('hist-hotel-select');
+  if (hotelesDisponibles.length > 1) {
+    histHotelSel.style.display = 'flex';
+    histHotelSelect.innerHTML = '';
+    hotelesDisponibles.forEach(function(h) {
+      var opt = document.createElement('option');
+      opt.value = h.HotelId;
+      opt.textContent = h.Nombre;
+      if (currentHotel && h.HotelId === currentHotel.HotelId) opt.selected = true;
+      histHotelSelect.appendChild(opt);
+    });
+  } else {
+    histHotelSel.style.display = 'none';
+  }
   var hoy = new Date(); var hace30 = new Date(hoy); hace30.setDate(hoy.getDate()-30);
   var fmt = function(d){ return d.toISOString().slice(0,10); };
   document.getElementById('hist-hasta').value = fmt(hoy);
   document.getElementById('hist-desde').value = fmt(hace30);
   await histCargarYRender();
 });
+
 async function histCargarYRender() {
   var list = document.getElementById('hist-list');
   list.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Cargando...</div>';
   try {
     var desde = document.getElementById('hist-desde').value;
     var hasta = document.getElementById('hist-hasta').value;
-    var cierres = await cargarHistorico();
+    // Determinar hotel para el histórico
+    var histHotelId = currentHotel ? currentHotel.HotelId : null;
+    var histHotelSelect = document.getElementById('hist-hotel-select');
+    if (hotelesDisponibles.length > 1 && histHotelSelect.value) {
+      histHotelId = parseInt(histHotelSelect.value);
+    }
+    var cierres = await cargarHistorico(histHotelId);
     if (desde || hasta) {
       cierres = cierres.filter(function(c) {
         var f = (c.fields.Fecha||'').slice(0,10);
@@ -1475,36 +1485,35 @@ async function cargarHotelesUsuario() {
     // ¿Es corporativo? → está en el registro HotelId=0
     const corporativo = todos.find(function(h){ return h.HotelId === 0 && emailEnLista(h.DestinatariosCorreo, email); });
     if (corporativo) {
-      // Corporativo → ve todos los hoteles reales (HotelId > 0) + una opción "Todos"
-      const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; });
-      return hotelesReales;
+      const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; }).sort(function(a,b){ return a.Nombre.localeCompare(b.Nombre); });
+      return { tipo: 'corporativo', hoteles: hotelesReales };
     }
-
     // ¿Está en algún hotel concreto?
     const misHoteles = todos.filter(function(h){ return h.HotelId > 0 && emailEnLista(h.DestinatariosCorreo, email); });
-    if (misHoteles.length > 0) return misHoteles;
-
-    // Fallback: sin acceso configurado → mostrar error
-    return [];
+    if (misHoteles.length > 0) return { tipo: 'hotel', hoteles: misHoteles };
+    return { tipo: 'sinAcceso', hoteles: [] };
   } catch(e) {
     console.error('Error cargando hoteles:', e);
-    return [{ HotelId: 80, Nombre: 'Portomagno' }];
+    return { tipo: 'sinAcceso', hoteles: [] };
   }
 }
 
 function seleccionarHotel(hotel) {
   currentHotel = hotel;
+  var vCorp = document.getElementById('corp-overlay');
+  if (vCorp) vCorp.style.display = 'none';
+  document.getElementById('hotel-select-overlay').style.display = 'none';
   document.getElementById('h-hotel-nombre').textContent = hotel.Nombre;
   document.getElementById('h-badge').textContent = 'Borrador';
-  document.getElementById('hotel-select-overlay').style.display = 'none';
-  state.items = [];
+  state.items = []; state.pax = 0;
+  document.getElementById('dc-pax').value = '';
+  limpiarGridSeleccion();
   renderRight();
   cargarArticulosSharePoint(hotel.HotelId);
-  // Cursor clicable solo si hay varios hoteles disponibles
   var hEl = document.getElementById('h-hotel-nombre');
   if (hotelesDisponibles.length > 1) {
     hEl.style.cursor = 'pointer';
-    hEl.title = 'Cambiar hotel';
+    hEl.title = 'Volver al panel';
     hEl.style.textDecoration = 'underline dotted';
   }
 }
@@ -1518,27 +1527,28 @@ async function initApp() {
   document.getElementById('btn-logout').textContent = (currentUser.name || 'Usuario').split(' ')[0];
   document.getElementById('login-overlay').style.display = 'none';
 
-  // Cargar hoteles del usuario
-  const hoteles = await cargarHotelesUsuario();
-  hotelesDisponibles = hoteles;
+  const resultado = await cargarHotelesUsuario();
+  hotelesDisponibles = resultado.hoteles;
 
-  if (hoteles.length === 0) {
-    // Sin acceso configurado
+  if (resultado.tipo === 'sinAcceso') {
     document.getElementById('login-overlay').style.display = 'flex';
     document.getElementById('login-error').style.display = 'block';
     document.getElementById('login-error').textContent = 'Tu cuenta no tiene acceso configurado. Contacta con el administrador.';
     currentUser = null;
     return;
   }
-  if (hoteles.length === 1) {
-    // Un solo hotel → entrar directamente
-    seleccionarHotel(hoteles[0]);
+  if (resultado.tipo === 'corporativo') {
+    mostrarVistaCorporativo(resultado.hoteles);
+    return;
+  }
+  // Usuario de hotel
+  if (resultado.hoteles.length === 1) {
+    seleccionarHotel(resultado.hoteles[0]);
   } else {
-    // Varios hoteles → mostrar selector
     const overlay = document.getElementById('hotel-select-overlay');
     const list = document.getElementById('hotel-select-list');
     list.innerHTML = '';
-    hoteles.forEach(function(h) {
+    resultado.hoteles.forEach(function(h) {
       const btn = document.createElement('button');
       btn.textContent = h.Nombre;
       btn.style.cssText = 'padding:12px;border:1.5px solid #e8e8e3;border-radius:8px;background:#fff;font-size:14px;font-weight:600;cursor:pointer;text-align:left;transition:all .15s';
@@ -1549,6 +1559,113 @@ async function initApp() {
     });
     overlay.style.display = 'flex';
   }
+}
+
+// ══ VISTA CORPORATIVO ══
+async function mostrarVistaCorporativo(hoteles) {
+  document.getElementById('corp-overlay').style.display = 'block';
+  // Fecha: hoy por defecto
+  var hoy = new Date().toISOString().slice(0,10);
+  var corpFecha = document.getElementById('corp-fecha');
+  if (!corpFecha.value) corpFecha.value = hoy;
+  await renderCorporativo(hoteles, corpFecha.value);
+  // Cambio de fecha
+  corpFecha.addEventListener('change', async function() {
+    await renderCorporativo(hoteles, this.value);
+  });
+  // Logout
+  document.getElementById('corp-logout').addEventListener('click', function() {
+    document.getElementById('btn-logout').click();
+  });
+}
+
+async function renderCorporativo(hoteles, fecha) {
+  var resumen = document.getElementById('corp-resumen');
+  var hotelGrid = document.getElementById('corp-hoteles');
+  resumen.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:10px;color:#888;font-size:12px">Cargando datos...</div>';
+  hotelGrid.innerHTML = '';
+
+  try {
+    const siteId = await getSiteId();
+    const listCabId = await getListId(siteId, 'DC_Cabecera');
+    // Cargar todas las cabeceras
+    var todasCab = [];
+    var nextCab = '/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500';
+    while (nextCab) {
+      var rCab = await graphCall(nextCab.replace('https://graph.microsoft.com/v1.0',''));
+      todasCab = todasCab.concat(rCab.value || []);
+      nextCab = rCab['@odata.nextLink'] ? rCab['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+    }
+    // Filtrar por fecha
+    var cierresDia = todasCab.filter(function(c) {
+      return (c.fields.Fecha||'').slice(0,10) === fecha;
+    });
+    // Agrupar por hotel (versión más reciente)
+    var porHotel = {};
+    cierresDia.forEach(function(c) {
+      var hid = String(c.fields.HotelID);
+      if (!porHotel[hid] || (c.fields.Version||1) > (porHotel[hid].fields.Version||1)) porHotel[hid] = c;
+    });
+
+    // Resumen cadena
+    var totalCoste = 0, totalPax = 0, totalCerrados = 0;
+    hoteles.forEach(function(h) {
+      var c = porHotel[String(h.HotelId)];
+      if (c) { totalCoste += c.fields.TotalCoste||0; totalPax += c.fields.Pensiones||0; totalCerrados++; }
+    });
+    var ratioCadena = totalPax > 0 ? totalCoste/totalPax : 0;
+    resumen.innerHTML =
+      kpiCard('Hoteles cerrados', totalCerrados+' / '+hoteles.length, totalCerrados===hoteles.length?'#1d9e75':'#e67e22') +
+      kpiCard('Coste total cadena', fmtE(totalCoste), '#1a1a1a') +
+      kpiCard('Pensiones totales', fmtN(totalPax), '#1a1a1a') +
+      kpiCard('Ratio cadena', fmtE(ratioCadena)+'/pax', '#1a1a1a');
+
+    // Tarjetas por hotel
+    hotelGrid.innerHTML = '';
+    hoteles.forEach(function(h) {
+      var c = porHotel[String(h.HotelId)];
+      var cerrado = !!c;
+      var coste = cerrado ? (c.fields.TotalCoste||0) : 0;
+      var pax = cerrado ? (c.fields.Pensiones||0) : 0;
+      var ratio = pax > 0 ? coste/pax : 0;
+      var ver = cerrado ? (c.fields.Version||1) : 0;
+
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#fff;border-radius:12px;padding:16px 18px;border:1.5px solid ' +
+        (cerrado?'#1d9e75':'#e8e8e3') + ';cursor:pointer;transition:box-shadow .15s';
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">' +
+          '<div style="font-size:14px;font-weight:800;color:#1a1a1a">'+h.Nombre+'</div>' +
+          '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:'+(cerrado?'#e8f7f1':'#f4f4f0')+';color:'+(cerrado?'#1d9e75':'#888')+'">' +
+            (cerrado ? (ver>1?'CORRECCIÓN v'+ver:'CERRADO') : 'PENDIENTE') +
+          '</span>' +
+        '</div>' +
+        (cerrado ?
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px">' +
+            '<div><div style="color:#888;margin-bottom:2px">COSTE</div><div style="font-weight:700;color:#1a1a1a">'+fmtE(coste)+'</div></div>' +
+            '<div><div style="color:#888;margin-bottom:2px">PENSIONES</div><div style="font-weight:700;color:#1a1a1a">'+fmtN(pax)+'</div></div>' +
+            '<div><div style="color:#888;margin-bottom:2px">RATIO</div><div style="font-weight:700;color:#1a1a1a">'+fmtE(ratio)+'</div></div>' +
+          '</div>' :
+          '<div style="font-size:12px;color:#bbb;padding:8px 0">Sin cierre para este día</div>'
+        ) +
+        '<div style="margin-top:12px;font-size:11px;color:#1d9e75;font-weight:700">→ Entrar en '+h.Nombre+'</div>';
+
+      card.addEventListener('mouseover', function(){ card.style.boxShadow='0 4px 16px rgba(0,0,0,.08)'; });
+      card.addEventListener('mouseout', function(){ card.style.boxShadow='none'; });
+      card.addEventListener('click', function(){ seleccionarHotel(h); });
+      hotelGrid.appendChild(card);
+    });
+
+  } catch(e) {
+    resumen.innerHTML = '<div style="color:#c13635;padding:10px">Error: '+e.message+'</div>';
+  }
+}
+
+function kpiCard(label, valor, color) {
+  return '<div style="background:#fff;border-radius:10px;padding:14px 16px;border:1.5px solid #e8e8e3">' +
+    '<div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:6px">'+label.toUpperCase()+'</div>' +
+    '<div style="font-size:18px;font-weight:800;color:'+color+'">'+valor+'</div>' +
+  '</div>';
 }
 
 // Interceptar cierre
@@ -1624,5 +1741,26 @@ msalInstance.initialize().then(function() {
 
 
 </script>
+
+<!-- VISTA CORPORATIVO -->
+<div id="corp-overlay" style="display:none;position:fixed;inset:0;background:#f0f0ec;z-index:150;overflow-y:auto;padding:24px">
+  <div style="max-width:900px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:4px">DAILY COST · CORPORATIVO</div>
+        <div style="font-size:22px;font-weight:800;color:#1a1a1a">Soho Boutique Hotels</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <input type="date" id="corp-fecha" style="border:1.5px solid #ddd;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;background:#fff">
+        <button id="corp-logout" style="background:none;border:1.5px solid #ddd;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:#555">Cerrar sesión</button>
+      </div>
+    </div>
+    <!-- Resumen cadena -->
+    <div id="corp-resumen" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px"></div>
+    <!-- Tarjetas hoteles -->
+    <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:12px">HOTELES</div>
+    <div id="corp-hoteles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px"></div>
+  </div>
+</div>
 </body>
 </html>
