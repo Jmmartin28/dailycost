@@ -175,7 +175,7 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
 <body>
 
 <header>
-  <div><div class="h-brand">Daily Cost · Soho Boutique Hotels</div><div class="h-title" id="h-hotel-nombre">—</div></div>
+  <div style="display:flex;align-items:center;gap:10px"><button id="btn-volver-corp" style="display:none;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);border-radius:8px;color:#fff;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">← Panel</button><div><div class="h-brand">Daily Cost · Soho Boutique Hotels</div><div class="h-title" id="h-hotel-nombre">—</div></div></div>
   <div class="h-datepax">
     <label>Día</label><input type="date" id="dc-fecha">
     <label>Pensiones</label><input type="number" id="dc-pax" min="0" placeholder="0">
@@ -222,8 +222,6 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
     <div id="hotel-select-title" style="font-size:16px;font-weight:800;margin-bottom:16px;color:#1a1a1a">Selecciona destino</div>
     <div id="hotel-select-list" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
-</div>
->
 </div>
 
 <!-- Panel histórico -->
@@ -1391,10 +1389,10 @@ document.getElementById('btn-logout').addEventListener('click', function() {
 });
 
 // HISTORICO
-// Click en nombre hotel → abre selector de destino (corporativos)
+// Click en nombre hotel → volver al panel corporativo
 document.getElementById('h-hotel-nombre').addEventListener('click', function() {
   if (!hotelesDisponibles || hotelesDisponibles.length <= 1) return;
-  mostrarSelectorDestino(true, hotelesDisponibles);
+  mostrarVistaCorporativo(hotelesDisponibles);
 });
 
 document.getElementById('btn-hist').addEventListener('click', async function() {
@@ -1529,24 +1527,24 @@ async function initApp() {
     document.getElementById('login-error').textContent = 'Tu cuenta no tiene acceso. Contacta con el administrador.';
     currentUser = null; return;
   }
-
+  if (resultado.tipo === 'corporativo') {
+    mostrarVistaCorporativo(resultado.hoteles); return;
+  }
   if (resultado.tipo === 'hotel' && resultado.hoteles.length === 1) {
-    // Un solo hotel → entrar directamente
     seleccionarHotel(resultado.hoteles[0]); return;
   }
-
-  // Corporativo o usuario con varios hoteles → mostrar selector
   mostrarSelectorDestino(resultado.tipo === 'corporativo', resultado.hoteles);
 }
 
 function mostrarSelectorDestino(esCorporativo, hoteles) {
+  if (!hoteles || !hoteles.forEach) {
+    console.error('mostrarSelectorDestino: hoteles inválido', hoteles); return;
+  }
   var overlay = document.getElementById('hotel-select-overlay');
   var list = document.getElementById('hotel-select-list');
   var title = document.getElementById('hotel-select-title');
-  title.textContent = esCorporativo ? 'Selecciona destino' : 'Selecciona hotel';
+  if (title) title.textContent = esCorporativo ? 'Selecciona destino' : 'Selecciona hotel';
   list.innerHTML = '';
-
-  // Opción Vista corporativa (solo corporativos)
   if (esCorporativo) {
     var btnCorp = document.createElement('button');
     btnCorp.innerHTML = '<span style="font-size:16px;margin-right:8px">📊</span>Vista corporativa';
@@ -1556,14 +1554,11 @@ function mostrarSelectorDestino(esCorporativo, hoteles) {
       mostrarVistaCorporativo(hoteles);
     });
     list.appendChild(btnCorp);
-    // Separador
     var sep = document.createElement('div');
     sep.style.cssText = 'font-size:10px;font-weight:700;color:#aaa;letter-spacing:.06em;margin:8px 0 4px';
     sep.textContent = 'O ENTRA EN UN HOTEL';
     list.appendChild(sep);
   }
-
-  // Lista de hoteles
   hoteles.forEach(function(h) {
     var btn = document.createElement('button');
     btn.textContent = h.Nombre;
@@ -1574,10 +1569,6 @@ function mostrarSelectorDestino(esCorporativo, hoteles) {
     list.appendChild(btn);
   });
   overlay.style.display = 'flex';
-}
-
-// placeholder para cerrar initApp
-function _initAppEnd() {
 }
 
 // Interceptar cierre
