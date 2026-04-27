@@ -1240,7 +1240,7 @@ async function guardarCierreSharePoint(datosCierre) {
     Pensiones: datosCierre.pensiones,
     UsuarioAutor: currentUser.username || currentUser.name,
     TotalCoste: datosCierre.totalCoste,
-    ArticulosPendientesSAP: datosCierre.pendientesSAP || '-',
+    Art_x00ed_culosPendientesSAP: datosCierre.pendientesSAP || '-',
     Estado: esCorreccion ? 'Corregido' : 'Cerrado',
     Version: version,
     EsCorreccion: esCorreccion
@@ -1250,7 +1250,7 @@ async function guardarCierreSharePoint(datosCierre) {
     throw new Error('Error creando cabecera: ' + (cabCreado && cabCreado.error ? cabCreado.error.message : 'sin respuesta'));
   }
   const cierreNumId = cabCreado.id;
-  console.log('Cabecera creada. CierreId:', cierreNumId);
+  console.log('Cabecera creada OK. CierreId:', cierreNumId);
 
   // Crear lineas
   for (var i = 0; i < datosCierre.lineas.length; i++) {
@@ -1420,7 +1420,6 @@ document.getElementById('btn-hist').addEventListener('click', async function() {
   document.getElementById('hist-desde').value = fmt(hace30);
   await histCargarYRender();
 });
-
 async function histCargarYRender() {
   var list = document.getElementById('hist-list');
   list.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Cargando...</div>';
