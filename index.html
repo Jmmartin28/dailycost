@@ -1833,9 +1833,23 @@ async function actualizarArticulosDesdeExcel() {
     const siteId = await getSiteId();
 
     // 1. Leer tabla Excel (paginando)
-    progMsg('Leyendo Excel...');
-    const excelBase = '/sites/' + siteId + '/drive/root:/F%26B/LISTADOS%20DC/Listado%20art%C3%ADculos%20DC.xlsx:/workbook/tables/Articulos_SAP';
+    // Buscar el archivo por nombre para evitar problemas de encoding de ruta
+    progMsg('Localizando Excel en SharePoint...');
+    const searchResp = await graphCall("/sites/" + siteId + "/drive/root/search(q='Listado')");
+    const fileItem = (searchResp.value || []).find(function(item) {
+      const n = (item.name || '').toLowerCase();
+      return n.indexOf('listado') >= 0 && n.indexOf('xlsx') >= 0 &&
+             (n.indexOf('articulos') >= 0 || n.indexOf('art') >= 0);
+    });
+    if (!fileItem) {
+      const found = (searchResp.value || []).map(function(i){ return i.name; }).join(', ');
+      throw new Error('Archivo Excel no encontrado. Resultados búsqueda: ' + (found || 'ninguno'));
+    }
+    const excelBase = '/sites/' + siteId + '/drive/items/' + fileItem.id + '/workbook/tables/Articulos_SAP';
+    progMsg('Archivo encontrado: ' + fileItem.name + '. Leyendo cabeceras...');
+
     const headResp = await graphCall(excelBase + '/headerRowRange');
+    if (!headResp || !headResp.values) throw new Error('Error leyendo cabeceras Excel: ' + JSON.stringify(headResp));
     const headers = headResp.values[0];
     const ci = {};
     headers.forEach(function(h, i) { ci[h] = i; });
