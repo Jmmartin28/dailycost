@@ -35,7 +35,7 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
 .fchip{padding:4px 10px;border-radius:12px;background:#f0f0ec;border:1px solid #ddd;font-size:10px;font-weight:600;cursor:pointer;color:#555;white-space:nowrap}
 .fchip.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
 
-/* Mic row */
+/* DICTADO POR VOZ — desactivado, pendiente de desarrollo
 .mic-row{display:flex;gap:8px;align-items:center;padding:0 8px 8px;border-bottom:1px solid #e8e8e3;flex-shrink:0}
 .mic-btn{width:40px;height:40px;border-radius:50%;border:none;background:#e24b4a;color:#fff;font-size:18px;cursor:pointer;flex-shrink:0}
 .mic-btn.on{background:#c13635;animation:pulse 1.4s infinite}
@@ -48,6 +48,7 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
 .mic-last.ok{background:#eaf7f1;color:#0d7c5a}
 .mic-last.warn{background:#faeeda;color:#7a4d00}
 .mic-last.err{background:#fde8e8;color:#7a1212}
+*/
 
 /* Grid de artículos */
 .art-scroll{flex:1;overflow-y:auto;padding:6px}
@@ -269,6 +270,7 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
       <button class="btn-uncataloged" id="btn-add-sap">＋ Artículo no creado en SAP</button>
     </div>
 
+    <!-- DICTADO POR VOZ — desactivado, pendiente de desarrollo
     <div class="mic-row">
       <button class="mic-btn" id="mic-btn">🎙</button>
       <div class="mic-status">
@@ -277,6 +279,7 @@ header{background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;gap:10px;alig
         <div class="mic-last" id="mic-last"></div>
       </div>
     </div>
+    -->
 
     <div class="art-scroll">
       <div class="art-grid" id="art-grid"></div>
@@ -388,8 +391,10 @@ function normalize(s){
   x=x.replace(/\bberenjena rebo\b/gi,'berenjena rebozada');
   return x.replace(/\s+/g," ").trim();
 }
+/* DICTADO VOZ — constantes de cantidades y unidades, pendiente de desarrollo
 const NUM={"cero":0,"un":1,"una":1,"uno":1,"dos":2,"tres":3,"cuatro":4,"cinco":5,"seis":6,"siete":7,"ocho":8,"nueve":9,"diez":10,"once":11,"doce":12,"trece":13,"catorce":14,"quince":15,"dieciseis":16,"diecisiete":17,"dieciocho":18,"diecinueve":19,"veinte":20,"veintiun":21,"veintiuna":21,"veintiuno":21,"veintidos":22,"veintitres":23,"veinticuatro":24,"veinticinco":25,"veintiseis":26,"veintisiete":27,"veintiocho":28,"veintinueve":29,"treinta":30,"cuarenta":40,"cincuenta":50,"sesenta":60,"setenta":70,"ochenta":80,"noventa":90,"cien":100,"docena":12,"media":0.5,"medio":0.5,"cuarto":0.25};
 const UND={"kilo":"KG","kilos":"KG","kg":"KG","kilogramo":"KG","gramo":"GR","gramos":"GR","gr":"GR","litro":"LT","litros":"LT","l":"LT","lt":"LT","ml":"ML","unidad":"UN","unidades":"UN","uds":"UN","ud":"UN","botella":"UN","botellas":"UN","lata":"UN","latas":"UN","bote":"UN","botes":"UN","bolsa":"UN","bolsas":"UN","paquete":"UN","paquetes":"UN","caja":"UN","cajas":"UN","cubo":"UN","cubos":"UN","barra":"UN","barras":"UN","docena":"UN","docenas":"UN"};
+*/
 const SIN={
   // Sinónimos de artículos
   "platano":"banana","platanos":"banana","gamba":"langostino","gambas":"langostino",
@@ -417,9 +422,12 @@ function lev(a,b){if(a===b)return 0;if(!a.length)return b.length;if(!b.length)re
 function sim(a,b){const m=Math.max(a.length,b.length);return m?1-lev(a,b)/m:1;}
 function buscar(t,lim=5){t=apSin(t);const pal=t.split(" ").filter(w=>w.length>1);if(!pal.length)return[];const r=[];for(const a of ARTICULOS){const aw=a.n.split(" ");let s=0,m=0;if(sim(pal[0],aw[0])>0.85)s+=3.0;else if(aw[0].startsWith(pal[0])&&pal[0].length>=3)s+=2.5;else if(pal[0].startsWith(aw[0])&&aw[0].length>=3)s+=2.0;for(const p of pal){let mp=0;for(let i=0;i<a.k.length;i++)if(p===a.k[i])mp=Math.max(mp,2.0-(i*0.15));if(mp<1.5)for(let i=0;i<a.k.length;i++){const k=a.k[i];if(k.startsWith(p)&&p.length>=3)mp=Math.max(mp,(1.7-(i*0.12))*(p.length/k.length+0.5));if(p.startsWith(k)&&k.length>=3)mp=Math.max(mp,1.5-(i*0.12));}if(mp<1.3)for(let i=0;i<a.k.length;i++){const ss=sim(p,a.k[i]);if(ss>0.82)mp=Math.max(mp,ss*(1.5-(i*0.15)));}if(mp>0){m++;s+=mp;}}if(m===0)continue;if(m===pal.length)s*=1.4;const ps=new Set(pal);for(const w of aw)if(DER.has(w)&&!ps.has(w))s-=1.5;s-=Math.min(0.4,a.n.length/150);r.push({art:a,score:s});}r.sort((x,y)=>y.score-x.score);return r.slice(0,lim);}
 
+/* DICTADO VOZ — parser de cantidades, pendiente de desarrollo
 function esCant(p,prev,nx){if(/^\d+([.]\d+)?$/.test(p))return true;if(NUM[p]!=null){if(prev==='y'){const a=NUM[prev];if(a>=20&&a%10===0&&NUM[p]<10)return false;}if(['medio','media','cuarto'].includes(p)&&prev==='y')return false;if(p==='docena')return false;if(['un','una','uno'].includes(p)){if(nx&&UND[nx])return true;const con=new Set(['kilo','kilos','litro','litros','gramo','gramos','unidad','unidades','ud','uds','de','del','la','el','los','las','y']);if(prev&&con.has(prev))return false;return true;}return true;}return false;}
 function parseCant(pal,j){let c=null,u=null;const m=pal[j]&&pal[j].match(/^(\d+)([.](\d+))?$/);if(m){c=parseFloat(m[1]+(m[3]?"."+m[3]:""));if(m[3]){const d=parseFloat("0."+m[3]);if(UND[pal[j+1]]==='UN'&&Math.abs(d-0.5)>0.001)c=parseInt(m[1]);}j++;}else if(pal[j]&&NUM.hasOwnProperty(pal[j])){c=NUM[pal[j]];if(c>=20&&c%10===0&&pal[j+1]==="y"&&NUM[pal[j+2]]<10){c+=NUM[pal[j+2]];j+=3;}else j++;if(pal[j]==='docena'){c=12;j++;}if(c!==null&&pal[j]==="y"&&["medio","media","cuarto"].includes(pal[j+1])){c+=NUM[pal[j+1]];j+=2;}}else return null;if(pal[j]&&UND[pal[j]]){u=UND[pal[j]];j++;if(pal[j]==="y"&&["medio","media","cuarto"].includes(pal[j+1])){if(c!==null)c+=NUM[pal[j+1]];j+=2;}}if(["de","del","la","las","los","el"].includes(pal[j]))j++;return{c,u,j};}
+*/
 
+/* DICTADO VOZ — función principal de parseo, pendiente de desarrollo
 function parsearVoz(texto){
   const norm=normalize(texto);
   let partes=norm.split(/[,;]/).map(s=>s.trim()).filter(Boolean);
@@ -484,6 +492,7 @@ function parsearVoz(texto){
         out.push({ok:true,cant:pr.c||1,u:pr.u,art:mj.art,duda,alts,orig});ini=pr.j;}if(ini<pal.length){const rest=pal.slice(ini).join(' ').trim();if(rest.length>=2){const c=buscar(rest);if(c.length){const mj=c[0],sg=c[1];const duda=(sg&&mj.score-sg.score<1.5&&sg.score>1.2)||mj.score<3.5;
             const alts=c.slice(1,4).filter(x=>x.score>mj.score*0.85&&(mj.score-x.score)<1.2).map(x=>x.art);
             out.push({ok:true,cant:1,u:null,art:mj.art,duda,alts,orig:rest});}else out.push({ok:false,orig:rest});}}}return out;}
+*/
 
 // ── ESTADO ──
 const state={items:[],pax:0};
@@ -815,7 +824,7 @@ document.getElementById('qm-input').addEventListener('keydown',e=>{
   if(e.key==='Escape')document.getElementById('qm-cancel').click();
 });
 
-// ── DICTADO ──
+/* ── DICTADO POR VOZ — desactivado, pendiente de desarrollo ──
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null,ufIdx=0,listening=false,stopping=false,pendingFinal='',pendingTimer=null,lastArtSinCantidad=null;
 
@@ -827,24 +836,19 @@ function mostrarLast(tipo,html){
   mostrarLast._t=setTimeout(()=>d.className='mic-last '+tipo,4000);
 }
 
-// Detectar si un texto es SOLO una cantidad (sin artículo)
 function esSoloCantidad(txt){
   const n=normalize(txt);
   const pal=n.split(' ').filter(Boolean);
   if(!pal.length)return null;
-  // Intentar parsear como cantidad desde el inicio
   const res=parseCant(pal,0);
   if(!res)return null;
-  // Si consume todas las palabras → es solo cantidad
   if(res.j>=pal.length)return res;
-  // Si queda solo "de/del/la/el" → también
   const resto=pal.slice(res.j).filter(w=>!['de','del','la','las','los','el','y'].includes(w));
   if(resto.length===0)return res;
   return null;
 }
 
 let _lastProcesado='';
-// Palabras que por sí solas son parte de nombres compuestos, no artículos independientes
 const PREFIJOS_COMPUESTOS=new Set(['aperitivo','concentrado','aceite','agua','caldo','zumo','salsa',
   'crema','sopa','pure','conserva','extracto','preparado','producto','bebida']);
 
@@ -855,7 +859,6 @@ function esRuido(t){
   const pal=n.split(' ').filter(Boolean);
   const noNum=pal.filter(w=>!w.match(/^\d/)&&!['kg','lt','un','gr','ml','litros','kilos','unidades','latas','botes','lata','bote'].includes(w));
   if(noNum.length<1)return true;
-  // Una sola palabra que es prefijo de nombre compuesto → probablemente Edge la separó
   if(pal.length===1&&PREFIJOS_COMPUESTOS.has(pal[0]))return true;
   return false;
 }
@@ -868,7 +871,6 @@ function procesarVoz(txt){
   _lastProcesado=txt;
   setTimeout(()=>{ if(_lastProcesado===txt) _lastProcesado=''; }, 2000);
 
-  // ══ PASO 1: ¿Es solo cantidad? → fusionar con último artículo pendiente ══
   const soloCant=esSoloCantidad(txt);
   if(soloCant&&lastArtSinCantidad){
     const cod=lastArtSinCantidad.cod;
@@ -877,7 +879,6 @@ function procesarVoz(txt){
     setQty(cod,qty);
     const it=getItem(cod);
     if(it){it.u=u;if(it.estado==='duda'&&!lastArtSinCantidad.teniaDuda)it.estado='ok';}
-    // Actualizar tarjeta
     const card=document.querySelector('.acard[data-cod="'+cod+'"]');
     if(card){const v=card.querySelector('.ac-val');if(v)v.textContent=fmtN(qty);}
     mostrarLast('ok','✓ '+fmtN(qty)+' '+u+' · '+esc(lastArtSinCantidad.art.d.slice(0,35)));
@@ -886,48 +887,36 @@ function procesarVoz(txt){
     return;
   }
 
-  // ══ PASO 2: Parsear normalmente ══
   const rs=parsearVoz(txt);
   let ultimoSinCant=null;
 
   for(const r of rs){
     if(!r.ok){
-      // NO resetear lastArtSinCantidad en errores — podría ser ruido entre artículo y cantidad
       mostrarLast('err','✗ No reconocido: "'+esc(r.orig.slice(0,30))+'"');
       continue;
     }
     const cod=r.art.c;
     const ex=getItem(cod);
-
     if(ex){
       toast('⚠ "'+r.art.d.slice(0,25)+'" ya está en la lista','warn',3000);
       mostrarLast('warn','⚠ Ya en lista: '+esc(r.art.d.slice(0,38)));
       continue;
     }
-
-    // Determinar si llegó con cantidad explícita
-    // Cantidad explícita = r.u tiene valor, O r.cant > 1, O el texto contiene número/palabra-cant
     const normTxt=normalize(txt);
     const tieneCantExpl=r.u||r.cant>1||
       normTxt.split(' ').some(w=>w.match(/^\d+/)&&w!=='1')||
       normTxt.split(' ').some(w=>['dos','tres','cuatro','cinco','seis','siete','ocho','nueve','diez',
         'once','doce','quince','veinte','treinta','cuarenta','cincuenta'].includes(w));
-
     const estado=r.duda?'duda':'ok';
     state.items.push({cod,qty:r.cant,u:r.u||r.art.u,art:r.art,estado,alts:r.alts||[]});
     const card=document.querySelector('.acard[data-cod="'+cod+'"]');
     if(card){card.classList.add('selected');const v=card.querySelector('.ac-val');if(v)v.textContent=fmtN(r.cant);}
     mostrarLast(r.duda?'warn':'ok',(r.duda?'⚠':'✓')+' '+fmtN(r.cant)+' '+(r.u||r.art.u)+' · '+esc(r.art.d.slice(0,33)));
-
-    if(!tieneCantExpl){
-      ultimoSinCant={cod,art:r.art,teniaDuda:r.duda};
-    }
+    if(!tieneCantExpl){ ultimoSinCant={cod,art:r.art,teniaDuda:r.duda}; }
   }
 
-  // Si el último artículo procesado no tenía cantidad, guardarlo para el siguiente fragmento
   if(ultimoSinCant) lastArtSinCantidad=ultimoSinCant;
   else if(rs.length>0&&rs[rs.length-1].ok) lastArtSinCantidad=null;
-
   renderRight();
 }
 
@@ -935,7 +924,6 @@ function setupRec(){
   if(!SR){document.getElementById('mic-btn').disabled=true;return false;}
   rec=new SR();rec.lang='es';rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=1;
   rec.onstart=()=>{ ufIdx=0; pendingFinal=''; clearTimeout(pendingTimer); };
-
   rec.onresult=e=>{
     let finales='', interim='';
     for(let i=0;i<e.results.length;i++){
@@ -943,54 +931,38 @@ function setupRec(){
       else interim+=e.results[i][0].transcript;
     }
     document.getElementById('mic-txt').textContent=(finales.trim()||'—')+(interim?' … '+interim:'');
-
     for(let i=ufIdx;i<e.results.length;i++){
       if(e.results[i].isFinal){
         const t=e.results[i][0].transcript.trim();
         if(t&&!stopping){ pendingFinal+=(pendingFinal?' ':'')+t; }
         ufIdx=i+1;
         clearTimeout(pendingTimer);
-        pendingTimer=setTimeout(()=>{
-          const txt=pendingFinal.trim();
-          pendingFinal='';
-          if(txt){ procesarVoz(txt); }
-        }, 600);
+        pendingTimer=setTimeout(()=>{ const txt=pendingFinal.trim(); pendingFinal=''; if(txt){ procesarVoz(txt); } }, 600);
       }
     }
   };
-
   rec.onerror=e=>{ if(e.error!=='no-speech'&&e.error!=='aborted') toast('Mic: '+e.error,'err'); };
-
   rec.onend=()=>{
     if(listening){
-      // NO procesar pendingFinal en onend — puede ser ruido al reiniciar la sesión
-      // El timer de 600ms ya se encarga de procesar lo que llegue durante la escucha
-      clearTimeout(pendingTimer);
-      pendingFinal='';
-      ufIdx=0;
+      clearTimeout(pendingTimer); pendingFinal=''; ufIdx=0;
       try{ rec.start(); }catch(_){}
     }
   };
-  // NO return true — evita que Edge trate esto como listener asíncrono
 }
 
 document.getElementById('mic-btn').addEventListener('click',()=>{
   if(listening){
-    listening=false;
-    stopping=true;  // marcar que estamos parando — ignorar próximos fragmentos
-    clearTimeout(pendingTimer);
-    pendingFinal='';
-    lastArtSinCantidad=null;
+    listening=false; stopping=true;
+    clearTimeout(pendingTimer); pendingFinal=''; lastArtSinCantidad=null;
     if(rec)try{rec.stop();}catch(_){}
-    setTimeout(()=>{ stopping=false; }, 1500);  // resetear tras 1.5s
+    setTimeout(()=>{ stopping=false; }, 1500);
     document.getElementById('mic-btn').classList.remove('on');
     document.getElementById('mic-btn').textContent='🎙';
     document.getElementById('mic-label').textContent='Pulsa para dictar · artículo + cantidad';
     document.getElementById('mic-txt').textContent='—';
   } else {
     if(!rec&&!setupRec())return;
-    listening=true;
-    ufIdx=0;
+    listening=true; ufIdx=0;
     try{rec.start();}catch(_){}
     document.getElementById('mic-btn').classList.add('on');
     document.getElementById('mic-btn').textContent='⏹';
@@ -998,6 +970,7 @@ document.getElementById('mic-btn').addEventListener('click',()=>{
     document.getElementById('mic-txt').textContent='— habla ahora —';
   }
 });
+*/
 
 // ── VACIAR / CERRAR ──
 document.getElementById('lh-clear').addEventListener('click',()=>{
@@ -1221,7 +1194,7 @@ async function cargarArticulosSharePoint(hotelId) {
       const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
       const items = (r.value || [])
         .filter(function(item) {
-          return String(item.fields.HotelId) === String(hotelId) &&
+          return String(item.fields.BPLId) === String(hotelId) &&
                  item.fields.Activo !== false && item.fields.Activo !== 0;
         })
         .map(function(item) {
@@ -1502,6 +1475,7 @@ async function cargarHotelesUsuario() {
       return {
         Id: item.id,
         HotelId: item.fields.HotelId || 0,
+        BPLId: item.fields.BPLId || 0,
         Nombre: item.fields.Title || '',
         DestinatariosCorreo: item.fields.DestinatariosCorreo || ''
       };
@@ -1538,7 +1512,7 @@ function seleccionarHotel(hotel) {
   document.getElementById('dc-pax').value = '';
   limpiarGridSeleccion();
   renderRight();
-  cargarArticulosSharePoint(hotel.HotelId);
+  cargarArticulosSharePoint(hotel.BPLId);
   // Botón volver al panel corporativo
   var btnVolver = document.getElementById('btn-volver-corp');
   if (btnVolver) {
@@ -1838,9 +1812,9 @@ function abrirFormArticulo(art) {
   sel.innerHTML = '';
   (_corpHoteles || []).forEach(function(h) {
     var opt = document.createElement('option');
-    opt.value = h.HotelId;
+    opt.value = h.BPLId;
     opt.textContent = h.Nombre;
-    if (art && String(h.HotelId) === String(art.hotelId)) opt.selected = true;
+    if (art && String(h.BPLId) === String(art.bplId)) opt.selected = true;
     sel.appendChild(opt);
   });
   document.getElementById('art-form-overlay').style.display = 'flex';
@@ -1861,7 +1835,7 @@ async function guardarArticuloSP() {
     CC:        document.getElementById('art-cc').value.trim(),
     Unidad:    document.getElementById('art-unidad').value.trim(),
     Precio:    parseFloat(document.getElementById('art-precio').value) || 0,
-    HotelId:   parseInt(document.getElementById('art-hotelid').value)  || 0
+    BPLId:     parseInt(document.getElementById('art-hotelid').value)  || 0
   };
   const btn = document.getElementById('art-form-save');
   btn.disabled = true; btn.textContent = 'Guardando...';
@@ -1935,7 +1909,7 @@ async function actualizarArticulosDesdeExcel() {
         CC:         String(v[ci['CC']]           || '').trim(),
         Unidad:     String(v[ci['UN']]           || '').trim(),
         Precio:     parseFloat(v[ci['Precio']])  || 0,
-        HotelId:    parseInt(v[ci['HotelId']])   || 0
+        BPLId:      parseInt(v[ci['BPLId']])      || 0
       };
     }).filter(function(a) { return a.Title && a.CodigoSAP; });
 
