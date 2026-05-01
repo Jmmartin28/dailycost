@@ -1834,7 +1834,7 @@ async function actualizarArticulosDesdeExcel() {
 
     // 1. Leer tabla Excel (paginando)
     progMsg('Leyendo Excel...');
-    const excelBase = '/sites/' + siteId + '/drive/root:/Documentos/F%26B/LISTADOS%20DC/Listado%20art%C3%ADculos%20DC.xlsx:/workbook/tables/Articulos_SAP';
+    const excelBase = '/sites/' + siteId + '/drive/root:/F%26B/LISTADOS%20DC/Listado%20art%C3%ADculos%20DC.xlsx:/workbook/tables/Articulos_SAP';
     const headResp = await graphCall(excelBase + '/headerRowRange');
     const headers = headResp.values[0];
     const ci = {};
