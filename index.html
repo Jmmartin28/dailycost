@@ -1822,6 +1822,97 @@ async function renderCorporativo(){
   }catch(e){resumen.innerHTML='<div style="color:#c13635;padding:10px;grid-column:1/-1">Error: '+e.message+'</div>';}
 }
 function kpiCard(label,valor,color){return '<div style="background:#fff;border-radius:10px;padding:14px 16px;border:1.5px solid #e8e8e3"><div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:6px">'+label.toUpperCase()+'</div><div style="font-size:18px;font-weight:800;color:'+color+'">'+valor+'</div></div>';}
+
+async function actualizarArticulosDesdeExcel() {
+  const btn = document.getElementById('btn-actualizar-articulos');
+  const origTxt = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Actualizando...'; }
+  const progEl = document.getElementById('corp-prog');
+  function progMsg(msg) { if (progEl) { progEl.textContent = msg; progEl.style.display = 'block'; } console.log('[ActualizarArticulos]', msg); }
+  try {
+    const siteId = await getSiteId();
+
+    // 1. Leer tabla Excel (paginando)
+    progMsg('Leyendo Excel...');
+    const excelBase = '/sites/' + siteId + '/drive/root:/Documentos/F%26B/LISTADOS%20DC/Listado%20art%C3%ADculos%20DC.xlsx:/workbook/tables/Articulos_SAP';
+    const headResp = await graphCall(excelBase + '/headerRowRange');
+    const headers = headResp.values[0];
+    const ci = {};
+    headers.forEach(function(h, i) { ci[h] = i; });
+
+    let filas = [];
+    let nextUrl = excelBase + '/rows?$top=500';
+    while (nextUrl) {
+      const resp = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
+      filas = filas.concat(resp.value || []);
+      nextUrl = resp['@odata.nextLink'] ? resp['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
+      progMsg('Leyendo Excel... ' + filas.length + ' filas');
+    }
+
+    const articulos = filas.map(function(row) {
+      const v = row.values[0];
+      return {
+        Title:      String(v[ci['Descripcion']] || '').trim(),
+        CodigoSAP:  String(v[ci['CodigoSAP']]   || '').trim(),
+        Familia:    String(v[ci['Familia']]      || '').trim(),
+        CC:         String(v[ci['CC']]           || '').trim(),
+        Unidad:     String(v[ci['UN']]           || '').trim(),
+        Precio:     parseFloat(v[ci['Precio']])  || 0,
+        HotelId:    parseInt(v[ci['HotelId']])   || 0
+      };
+    }).filter(function(a) { return a.Title && a.CodigoSAP; });
+
+    progMsg('Excel leído: ' + articulos.length + ' artículos. Borrando lista SP...');
+
+    // 2. Borrar todos los items existentes en DC_Articulos
+    const listId = await getListId(siteId, 'DC_Articulos');
+    if (!listId) throw new Error('Lista DC_Articulos no encontrada');
+
+    let idsToDelete = [];
+    let delUrl = '/sites/' + siteId + '/lists/' + listId + '/items?$select=id&$top=500';
+    while (delUrl) {
+      const resp = await graphCall(delUrl);
+      idsToDelete = idsToDelete.concat((resp.value || []).map(function(i) { return i.id; }));
+      delUrl = resp['@odata.nextLink'] ? resp['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
+    }
+
+    for (var d = 0; d < idsToDelete.length; d += 20) {
+      const chunk = idsToDelete.slice(d, d + 20);
+      const requests = chunk.map(function(id, j) {
+        return { id: String(j + 1), method: 'DELETE', url: '/sites/' + siteId + '/lists/' + listId + '/items/' + id };
+      });
+      await graphCall('/$batch', 'POST', { requests: requests });
+      progMsg('Borrando... ' + Math.min(d + 20, idsToDelete.length) + '/' + idsToDelete.length);
+    }
+
+    progMsg('Creando ' + articulos.length + ' artículos nuevos...');
+
+    // 3. Recrear items desde el Excel (batch 20 por lote)
+    for (var c = 0; c < articulos.length; c += 20) {
+      const chunk = articulos.slice(c, c + 20);
+      const requests = chunk.map(function(art, j) {
+        return {
+          id: String(j + 1),
+          method: 'POST',
+          url: '/sites/' + siteId + '/lists/' + listId + '/items',
+          headers: { 'Content-Type': 'application/json' },
+          body: { fields: art }
+        };
+      });
+      await graphCall('/$batch', 'POST', { requests: requests });
+      progMsg('Creando... ' + Math.min(c + 20, articulos.length) + '/' + articulos.length);
+    }
+
+    progEl.style.display = 'none';
+    toast('✓ Artículos actualizados: ' + articulos.length + ' registros', null, 4000);
+  } catch(e) {
+    console.error('Error actualizando artículos:', e);
+    if (progEl) progEl.style.display = 'none';
+    toast('Error: ' + (e.message || e), 'err', 5000);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origTxt; }
+  }
+}
 </script>
 
 <div id="corp-overlay" style="display:none;position:fixed;inset:0;background:#f0f0ec;z-index:150;overflow-y:auto;padding:24px">
@@ -1838,6 +1929,7 @@ function kpiCard(label,valor,color){return '<div style="background:#fff;border-r
         <button id="corp-btn-hoy" style="background:#1a1a1a;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">Hoy</button>
         <button id="corp-btn-semana" style="background:#f4f4f0;color:#555;border:1.5px solid #ddd;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">7 días</button>
         <button id="corp-btn-mes" style="background:#f4f4f0;color:#555;border:1.5px solid #ddd;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">30 días</button>
+        <button id="btn-actualizar-articulos" onclick="actualizarArticulosDesdeExcel()" style="background:#1d9e75;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">↑ Actualizar artículos</button>
         <button id="corp-logout" style="background:none;border:1.5px solid #ddd;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer;color:#888">Salir</button>
       </div>
     </div>
@@ -1846,6 +1938,7 @@ function kpiCard(label,valor,color){return '<div style="background:#fff;border-r
     <div id="corp-hoteles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px"></div>
   </div>
 </div>
+<div id="corp-prog" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;padding:10px 22px;border-radius:10px;font-size:12px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);white-space:nowrap"></div>
 
 <!-- MODAL GRÁFICO HISTÓRICO -->
 <div id="graf-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;align-items:center;justify-content:center;padding:20px">
