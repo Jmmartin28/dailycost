@@ -1823,6 +1823,67 @@ async function renderCorporativo(){
 }
 function kpiCard(label,valor,color){return '<div style="background:#fff;border-radius:10px;padding:14px 16px;border:1.5px solid #e8e8e3"><div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:6px">'+label.toUpperCase()+'</div><div style="font-size:18px;font-weight:800;color:'+color+'">'+valor+'</div></div>';}
 
+var _artFormSpId = null;
+
+function abrirFormArticulo(art) {
+  _artFormSpId = art ? (art.spId || null) : null;
+  document.getElementById('art-form-title').textContent = art ? 'Editar artículo' : 'Nuevo artículo';
+  document.getElementById('art-codigosap').value  = art ? (art.c  || '') : '';
+  document.getElementById('art-descripcion').value = art ? (art.d  || '') : '';
+  document.getElementById('art-familia').value     = art ? (art.f  || '') : '';
+  document.getElementById('art-cc').value          = art ? (art.cc || '') : '';
+  document.getElementById('art-unidad').value      = art ? (art.u  || '') : '';
+  document.getElementById('art-precio').value      = art ? (art.p  || '') : '';
+  var sel = document.getElementById('art-hotelid');
+  sel.innerHTML = '';
+  (_corpHoteles || []).forEach(function(h) {
+    var opt = document.createElement('option');
+    opt.value = h.HotelId;
+    opt.textContent = h.Nombre;
+    if (art && String(h.HotelId) === String(art.hotelId)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  document.getElementById('art-form-overlay').style.display = 'flex';
+}
+
+function cerrarFormArticulo() {
+  document.getElementById('art-form-overlay').style.display = 'none';
+}
+
+async function guardarArticuloSP() {
+  const codigoSAP   = document.getElementById('art-codigosap').value.trim();
+  const descripcion = document.getElementById('art-descripcion').value.trim();
+  if (!codigoSAP || !descripcion) { toast('Código SAP y Descripción son obligatorios', 'err', 3000); return; }
+  const fields = {
+    Title:     descripcion,
+    CodigoSAP: codigoSAP,
+    Familia:   document.getElementById('art-familia').value.trim(),
+    CC:        document.getElementById('art-cc').value.trim(),
+    Unidad:    document.getElementById('art-unidad').value.trim(),
+    Precio:    parseFloat(document.getElementById('art-precio').value) || 0,
+    HotelId:   parseInt(document.getElementById('art-hotelid').value)  || 0
+  };
+  const btn = document.getElementById('art-form-save');
+  btn.disabled = true; btn.textContent = 'Guardando...';
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(siteId, 'DC_Articulos');
+    if (_artFormSpId) {
+      await graphCall('/sites/' + siteId + '/lists/' + listId + '/items/' + _artFormSpId, 'PATCH', { fields: fields });
+      toast('✓ Artículo actualizado', null, 2500);
+    } else {
+      await graphCall('/sites/' + siteId + '/lists/' + listId + '/items', 'POST', { fields: fields });
+      toast('✓ Artículo creado', null, 2500);
+    }
+    cerrarFormArticulo();
+  } catch(e) {
+    console.error('Error guardando artículo:', e);
+    toast('Error: ' + (e.message || e), 'err', 5000);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Guardar artículo';
+  }
+}
+
 async function actualizarArticulosDesdeExcel() {
   const btn = document.getElementById('btn-actualizar-articulos');
   const origTxt = btn ? btn.textContent : '';
@@ -1855,12 +1916,14 @@ async function actualizarArticulosDesdeExcel() {
     headers.forEach(function(h, i) { ci[h] = i; });
 
     let filas = [];
-    let nextUrl = excelBase + '/rows?$top=500';
-    while (nextUrl) {
-      const resp = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
-      filas = filas.concat(resp.value || []);
-      nextUrl = resp['@odata.nextLink'] ? resp['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
+    var pageSize = 500, skip = 0;
+    while (true) {
+      const resp = await graphCall(excelBase + '/rows?$top=' + pageSize + '&$skip=' + skip);
+      const page = resp.value || [];
+      filas = filas.concat(page);
       progMsg('Leyendo Excel... ' + filas.length + ' filas');
+      if (page.length < pageSize) break;
+      skip += pageSize;
     }
 
     const articulos = filas.map(function(row) {
@@ -1943,6 +2006,7 @@ async function actualizarArticulosDesdeExcel() {
         <button id="corp-btn-hoy" style="background:#1a1a1a;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">Hoy</button>
         <button id="corp-btn-semana" style="background:#f4f4f0;color:#555;border:1.5px solid #ddd;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">7 días</button>
         <button id="corp-btn-mes" style="background:#f4f4f0;color:#555;border:1.5px solid #ddd;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">30 días</button>
+        <button onclick="abrirFormArticulo(null)" style="background:#f4f4f0;color:#1d9e75;border:1.5px solid #1d9e75;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">＋ Artículo</button>
         <button id="btn-actualizar-articulos" onclick="actualizarArticulosDesdeExcel()" style="background:#1d9e75;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer">↑ Actualizar artículos</button>
         <button id="corp-logout" style="background:none;border:1.5px solid #ddd;border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer;color:#888">Salir</button>
       </div>
@@ -1953,6 +2017,50 @@ async function actualizarArticulosDesdeExcel() {
   </div>
 </div>
 <div id="corp-prog" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;padding:10px 22px;border-radius:10px;font-size:12px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);white-space:nowrap"></div>
+
+<!-- MODAL FORMULARIO ARTÍCULO -->
+<div id="art-form-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:520px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px">
+      <div style="font-size:16px;font-weight:800;color:#1a1a1a" id="art-form-title">Nuevo artículo</div>
+      <button onclick="cerrarFormArticulo()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;line-height:1">×</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;display:block;margin-bottom:4px">CÓDIGO SAP *</label>
+        <input id="art-codigosap" type="text" placeholder="Ej: 10001234" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-weight:600;box-sizing:border-box;outline:none">
+      </div>
+      <div>
+        <label style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;display:block;margin-bottom:4px">HOTEL *</label>
+        <select id="art-hotelid" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-weight:600;box-sizing:border-box;outline:none;background:#fff"></select>
+      </div>
+      <div style="grid-column:1/-1">
+        <label style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;display:block;margin-bottom:4px">DESCRIPCIÓN *</label>
+        <input id="art-descripcion" type="text" placeholder="Nombre del artículo" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-weight:600;box-sizing:border-box;outline:none">
+      </div>
+      <div>
+        <label style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;display:block;margin-bottom:4px">FAMILIA</label>
+        <input id="art-familia" type="text" placeholder="Ej: Bebidas" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-weight:600;box-sizing:border-box;outline:none">
+      </div>
+      <div>
+        <label style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;display:block;margin-bottom:4px">CENTRO DE COSTE</label>
+        <input id="art-cc" type="text" placeholder="CC" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-weight:600;box-sizing:border-box;outline:none">
+      </div>
+      <div>
+        <label style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;display:block;margin-bottom:4px">UNIDAD</label>
+        <input id="art-unidad" type="text" placeholder="Ej: KG, L, UND" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-weight:600;box-sizing:border-box;outline:none">
+      </div>
+      <div>
+        <label style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;display:block;margin-bottom:4px">PRECIO (€)</label>
+        <input id="art-precio" type="number" step="0.001" min="0" placeholder="0.000" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;font-weight:600;box-sizing:border-box;outline:none">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:22px;justify-content:flex-end">
+      <button onclick="cerrarFormArticulo()" style="background:none;border:1.5px solid #ddd;border-radius:8px;padding:9px 20px;font-size:12px;font-weight:700;cursor:pointer;color:#555">Cancelar</button>
+      <button id="art-form-save" onclick="guardarArticuloSP()" style="background:#1d9e75;color:#fff;border:none;border-radius:8px;padding:9px 20px;font-size:12px;font-weight:700;cursor:pointer">Guardar artículo</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL GRÁFICO HISTÓRICO -->
 <div id="graf-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;align-items:center;justify-content:center;padding:20px">
