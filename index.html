@@ -1190,8 +1190,14 @@ async function cargarArticulosSharePoint(hotelId) {
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
     let arts = [];
     let nextUrl = url;
+    let _debugDone = false;
     while (nextUrl) {
       const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
+      if (!_debugDone && r.value && r.value.length > 0) {
+        console.log('[DC_Articulos] campos del primer item:', r.value[0].fields);
+        console.log('[DC_Articulos] buscando BPLId ==', hotelId);
+        _debugDone = true;
+      }
       const items = (r.value || [])
         .filter(function(item) {
           return String(item.fields.BPLId) === String(hotelId) &&
@@ -1512,6 +1518,7 @@ function seleccionarHotel(hotel) {
   document.getElementById('dc-pax').value = '';
   limpiarGridSeleccion();
   renderRight();
+  console.log('[seleccionarHotel] hotel:', hotel.Nombre, '| HotelId:', hotel.HotelId, '| BPLId:', hotel.BPLId);
   cargarArticulosSharePoint(hotel.BPLId);
   // Botón volver al panel corporativo
   var btnVolver = document.getElementById('btn-volver-corp');
