@@ -1187,14 +1187,19 @@ async function cargarArticulosSharePoint(hotelId) {
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    const url = '/sites/' + siteId + '/lists/' + listId +
-      '/items?$expand=fields&$top=500&$filter=fields/BPLId eq ' + parseInt(hotelId);
+    // Cargamos todos los artículos paginando (el nombre interno del campo puede ser HotelId aunque se muestre como BPLId)
+    const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=200';
     let arts = [];
     let nextUrl = url;
     while (nextUrl) {
       const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
       if (r.error) { console.error('[ART] error Graph:', JSON.stringify(r.error)); break; }
       const items = (r.value || [])
+        .filter(function(item) {
+          // El nombre interno del campo puede ser HotelId (renombrado) o BPLId (nuevo)
+          const val = item.fields.HotelId !== undefined ? item.fields.HotelId : item.fields.BPLId;
+          return String(val) === String(hotelId);
+        })
         .map(function(item) {
           const d = item.fields.Title || '';
           const n = d.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -1833,7 +1838,8 @@ async function guardarArticuloSP() {
     CC:        document.getElementById('art-cc').value.trim(),
     Unidad:    document.getElementById('art-unidad').value.trim(),
     Precio:    parseFloat(document.getElementById('art-precio').value) || 0,
-    BPLId:     parseInt(document.getElementById('art-hotelid').value)  || 0
+    BPLId:     parseInt(document.getElementById('art-hotelid').value)  || 0,
+    HotelId:   parseInt(document.getElementById('art-hotelid').value)  || 0
   };
   const btn = document.getElementById('art-form-save');
   btn.disabled = true; btn.textContent = 'Guardando...';
@@ -1907,7 +1913,8 @@ async function actualizarArticulosDesdeExcel() {
         CC:         String(v[ci['CC']]           || '').trim(),
         Unidad:     String(v[ci['UN']]           || '').trim(),
         Precio:     parseFloat(v[ci['Precio']])  || 0,
-        BPLId:      parseInt(v[ci['BPLId']])      || 0
+        BPLId:      parseInt(v[ci['BPLId']])      || 0,
+        HotelId:    parseInt(v[ci['BPLId']])      || 0
       };
     }).filter(function(a) { return a.Title && a.CodigoSAP; });
 
