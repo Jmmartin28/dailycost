@@ -1190,14 +1190,8 @@ async function cargarArticulosSharePoint(hotelId) {
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
     let arts = [];
     let nextUrl = url;
-    let _debugDone = false;
     while (nextUrl) {
       const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
-      if (!_debugDone && r.value && r.value.length > 0) {
-        console.log('[DC_Articulos] campos del primer item:', r.value[0].fields);
-        console.log('[DC_Articulos] buscando BPLId ==', hotelId);
-        _debugDone = true;
-      }
       const items = (r.value || [])
         .filter(function(item) {
           return String(item.fields.BPLId) === String(hotelId) &&
@@ -1492,13 +1486,13 @@ async function cargarHotelesUsuario() {
       return lista.split(';').map(function(e){ return e.trim().toLowerCase(); }).indexOf(email) >= 0;
     }
 
-    const corporativo = todos.find(function(h){ return h.HotelId === 0 && emailEnLista(h.DestinatariosCorreo, email); });
+    const corporativo = todos.find(function(h){ return h.BPLId === 0 && emailEnLista(h.DestinatariosCorreo, email); });
     if (corporativo) {
-      const hotelesReales = todos.filter(function(h){ return h.HotelId > 0; })
+      const hotelesReales = todos.filter(function(h){ return h.BPLId > 0; })
         .sort(function(a,b){ return a.Nombre.localeCompare(b.Nombre); });
       return { tipo: 'corporativo', hoteles: hotelesReales };
     }
-    const misHoteles = todos.filter(function(h){ return h.HotelId > 0 && emailEnLista(h.DestinatariosCorreo, email); });
+    const misHoteles = todos.filter(function(h){ return h.BPLId > 0 && emailEnLista(h.DestinatariosCorreo, email); });
     if (misHoteles.length > 0) return { tipo: 'hotel', hoteles: misHoteles };
     return { tipo: 'sinAcceso', hoteles: [] };
   } catch(e) {
@@ -1518,7 +1512,6 @@ function seleccionarHotel(hotel) {
   document.getElementById('dc-pax').value = '';
   limpiarGridSeleccion();
   renderRight();
-  console.log('[seleccionarHotel] hotel:', hotel.Nombre, '| HotelId:', hotel.HotelId, '| BPLId:', hotel.BPLId);
   cargarArticulosSharePoint(hotel.BPLId);
   // Botón volver al panel corporativo
   var btnVolver = document.getElementById('btn-volver-corp');
