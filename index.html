@@ -1192,8 +1192,16 @@ async function cargarArticulosSharePoint(hotelId) {
     const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
     let arts = [];
     let nextUrl = url;
+    let _dbg = false;
     while (nextUrl) {
       const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
+      if (!_dbg && r.value && r.value.length) {
+        const f = r.value[0].fields;
+        console.log('[ART] total items 1ª página:', r.value.length);
+        console.log('[ART] claves 1er item:', Object.keys(f).join(', '));
+        console.log('[ART] BPLId:', f.BPLId, '| HotelId:', f.HotelId, '| Activo:', f.Activo);
+        _dbg = true;
+      }
       const items = (r.value || [])
         .filter(function(item) {
           return String(item.fields.BPLId) === String(hotelId) &&
