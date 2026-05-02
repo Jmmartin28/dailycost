@@ -1182,34 +1182,19 @@ async function getListId(siteId, listName) {
 }
 
 async function cargarArticulosSharePoint(hotelId) {
-  console.log('[ART] función invocada con hotelId:', hotelId);
   try {
     toast('Cargando articulos...', null, 5000);
     const siteId = await getSiteId();
     const listId = await getListId(siteId, 'DC_Articulos');
-    console.log('[ART] listId DC_Articulos:', listId);
     if (!listId) { toast('Lista DC_Articulos no encontrada', 'err'); return; }
-    const url = '/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=1000';
+    const url = '/sites/' + siteId + '/lists/' + listId +
+      '/items?$expand=fields&$top=500&$filter=fields/BPLId eq ' + parseInt(hotelId);
     let arts = [];
     let nextUrl = url;
-    let _dbg = false;
     while (nextUrl) {
       const r = await graphCall(nextUrl.replace('https://graph.microsoft.com/v1.0', ''));
-      if (!_dbg) {
-        console.log('[ART] items en 1ª pág:', r.value ? r.value.length : 'sin value');
-        if (r.error) console.log('[ART] error API:', JSON.stringify(r.error));
-        if (r.value && r.value.length) {
-          const f = r.value[0].fields;
-          console.log('[ART] claves 1er item:', Object.keys(f).join(', '));
-          console.log('[ART] BPLId:', f.BPLId, '| HotelId:', f.HotelId, '| Activo:', f.Activo);
-        }
-        _dbg = true;
-      }
+      if (r.error) { console.error('[ART] error Graph:', JSON.stringify(r.error)); break; }
       const items = (r.value || [])
-        .filter(function(item) {
-          return String(item.fields.BPLId) === String(hotelId) &&
-                 item.fields.Activo !== false && item.fields.Activo !== 0;
-        })
         .map(function(item) {
           const d = item.fields.Title || '';
           const n = d.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
