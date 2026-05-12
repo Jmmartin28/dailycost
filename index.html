@@ -1798,7 +1798,7 @@ async function renderCorporativo(){
       if(seq !== _corpRenderSeq) return;
       var dias=porHotel[String(h.HotelId)]||{},numDias=Object.keys(dias).length,costeTotal=0,paxTotal=0;
       Object.values(dias).forEach(function(c){costeTotal+=c.fields.TotalCoste||0;paxTotal+=c.fields.Pensiones||0;});
-      var ratio=paxTotal>0?costeTotal/paxTotal:0,mediaD=diasRango>0?costeTotal/diasRango:0,cerradoHoy=esUnDia&&dias[desde],ver=cerradoHoy?(dias[desde].fields.Version||1):0;
+      var ratio=paxTotal>0?costeTotal/paxTotal:0,mediaD=numDias>0?costeTotal/numDias:0,cerradoHoy=esUnDia&&dias[desde],ver=cerradoHoy?(dias[desde].fields.Version||1):0;
       var card=document.createElement('div');
       card.style.cssText='background:#fff;border-radius:12px;padding:16px 18px;cursor:pointer;transition:box-shadow .15s;border:1.5px solid '+(esUnDia?(cerradoHoy?'#1d9e75':'#e8e8e3'):'#e8e8e3');
       var badge=esUnDia?'<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:'+(cerradoHoy?'#e8f7f1':'#f4f4f0')+';color:'+(cerradoHoy?'#1d9e75':'#888')+'">'+(cerradoHoy?(ver>1?'CORRECCIÓN v'+ver:'CERRADO'):'PENDIENTE')+'</span>':'<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:#f0f8ff;color:#3a7bd5">'+numDias+' días</span>';
