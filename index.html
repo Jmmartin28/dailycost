@@ -1423,19 +1423,8 @@ document.getElementById('h-hotel-nombre').addEventListener('click', function() {
 
 document.getElementById('btn-hist').addEventListener('click', async function() {
   document.getElementById('hist-panel').style.display = 'flex';
-  var histHotelSel = document.getElementById('hist-hotel-sel');
-  var histHotelSelect = document.getElementById('hist-hotel-select');
-  if (hotelesDisponibles.length > 1) {
-    histHotelSel.style.display = 'block';
-    histHotelSelect.innerHTML = '';
-    hotelesDisponibles.forEach(function(h) {
-      var opt = document.createElement('option');
-      opt.value = h.HotelId;
-      opt.textContent = h.Nombre;
-      if (currentHotel && h.HotelId === currentHotel.HotelId) opt.selected = true;
-      histHotelSelect.appendChild(opt);
-    });
-  }
+  // El selector de hotel se oculta siempre: el histórico muestra solo el hotel activo
+  document.getElementById('hist-hotel-sel').style.display = 'none';
   var hoy = new Date(); var hace30 = new Date(hoy); hace30.setDate(hoy.getDate()-30);
   var fmt = function(d){ return d.toISOString().slice(0,10); };
   document.getElementById('hist-hasta').value = fmt(hoy);
@@ -1450,8 +1439,6 @@ async function histCargarYRender() {
     var desde = document.getElementById('hist-desde').value;
     var hasta = document.getElementById('hist-hasta').value;
     var histHotelId = currentHotel ? currentHotel.HotelId : null;
-    var sel = document.getElementById('hist-hotel-select');
-    if (hotelesDisponibles.length > 1 && sel && sel.value) histHotelId = parseInt(sel.value);
     var cierres = await cargarHistorico(histHotelId);
     if (desde || hasta) {
       cierres = cierres.filter(function(c) {
@@ -1533,9 +1520,13 @@ function seleccionarHotel(hotel) {
   // Botón volver al panel corporativo
   var btnVolver = document.getElementById('btn-volver-corp');
   if (btnVolver) {
-    var listaCorp = hotelesDisponibles.length > 0 ? hotelesDisponibles : _corpHoteles;
-    btnVolver.style.display = listaCorp.length > 0 ? 'block' : 'none';
-    btnVolver.onclick = function(){ mostrarSelectorDestino(true, listaCorp); };
+    // Solo usuarios corporativos pueden volver al panel corporativo
+    if (_esCorporativo && _corpHoteles.length > 0) {
+      btnVolver.style.display = 'block';
+      btnVolver.onclick = function(){ mostrarSelectorDestino(true, _corpHoteles); };
+    } else {
+      btnVolver.style.display = 'none';
+    }
   }
 }
 
@@ -1763,8 +1754,11 @@ function abrirGraficoHistorico(cierres) {
 }
 
 var _corpHoteles = [];
+var _esCorporativo = false;
+var _corpRenderSeq = 0;
 async function mostrarVistaCorporativo(hoteles) {
   _corpHoteles = hoteles;
+  _esCorporativo = true;
   document.getElementById('corp-overlay').style.display = 'block';
   document.getElementById('hotel-select-overlay').style.display = 'none';
   var hoy=new Date().toISOString().slice(0,10);
@@ -1778,6 +1772,7 @@ async function mostrarVistaCorporativo(hoteles) {
   document.getElementById('corp-logout').onclick=function(){document.getElementById('btn-logout').click();};
 }
 async function renderCorporativo(){
+  var seq = ++_corpRenderSeq;
   var hoteles=_corpHoteles,desde=document.getElementById('corp-desde').value,hasta=document.getElementById('corp-hasta').value;
   if(!desde||!hasta)return;
   var resumen=document.getElementById('corp-resumen'),hotelGrid=document.getElementById('corp-hoteles');
@@ -1785,8 +1780,9 @@ async function renderCorporativo(){
   hotelGrid.innerHTML='';
   try{
     const siteId=await getSiteId(),listCabId=await getListId(siteId,'DC_Cabecera');
+    if(seq !== _corpRenderSeq) return;
     var todasCab=[],nextCab='/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500';
-    while(nextCab){var r=await graphCall(nextCab.replace('https://graph.microsoft.com/v1.0',''));todasCab=todasCab.concat(r.value||[]);nextCab=r['@odata.nextLink']?r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0',''):null;}
+    while(nextCab){var r=await graphCall(nextCab.replace('https://graph.microsoft.com/v1.0',''));if(seq !== _corpRenderSeq) return;todasCab=todasCab.concat(r.value||[]);nextCab=r['@odata.nextLink']?r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0',''):null;}
     var enRango=todasCab.filter(function(c){var f=(c.fields.Fecha||'').slice(0,10);return f>=desde&&f<=hasta;});
     var porHotel={};
     enRango.forEach(function(c){var hid=String(c.fields.HotelID),fecha=(c.fields.Fecha||'').slice(0,10);if(!porHotel[hid])porHotel[hid]={};if(!porHotel[hid][fecha]||(c.fields.Version||1)>(porHotel[hid][fecha].fields.Version||1))porHotel[hid][fecha]=c;});
@@ -1797,7 +1793,9 @@ async function renderCorporativo(){
     hoteles.forEach(function(h){ totalCierres += Object.keys(porHotel[String(h.HotelId)]||{}).length; });
     var ratioCadena=totalPax>0?totalCoste/totalPax:0,mediaCoste=totalCierres>0?totalCoste/totalCierres:0;
     resumen.innerHTML=kpiCard('Coste total',fmtE(totalCoste),'#1a1a1a')+kpiCard('Pensiones totales',fmtN(totalPax),'#1a1a1a')+kpiCard('Ratio €/pax',fmtE(ratioCadena),'#1a1a1a')+(esUnDia?kpiCard('Hoteles cerrados',hotelesCerrados.size+' / '+hoteles.length,hotelesCerrados.size===hoteles.length?'#1d9e75':'#e67e22'):kpiCard('Media diaria cadena',fmtE(mediaCoste),'#1d9e75'));
+    hotelGrid.innerHTML='';
     hoteles.forEach(function(h){
+      if(seq !== _corpRenderSeq) return;
       var dias=porHotel[String(h.HotelId)]||{},numDias=Object.keys(dias).length,costeTotal=0,paxTotal=0;
       Object.values(dias).forEach(function(c){costeTotal+=c.fields.TotalCoste||0;paxTotal+=c.fields.Pensiones||0;});
       var ratio=paxTotal>0?costeTotal/paxTotal:0,mediaD=diasRango>0?costeTotal/diasRango:0,cerradoHoy=esUnDia&&dias[desde],ver=cerradoHoy?(dias[desde].fields.Version||1):0;
@@ -1810,7 +1808,7 @@ async function renderCorporativo(){
       card.addEventListener('click',function(){seleccionarHotel(h);});
       hotelGrid.appendChild(card);
     });
-  }catch(e){resumen.innerHTML='<div style="color:#c13635;padding:10px;grid-column:1/-1">Error: '+e.message+'</div>';}
+  }catch(e){if(seq===_corpRenderSeq)resumen.innerHTML='<div style="color:#c13635;padding:10px;grid-column:1/-1">Error: '+e.message+'</div>';}
 }
 function kpiCard(label,valor,color){return '<div style="background:#fff;border-radius:10px;padding:14px 16px;border:1.5px solid #e8e8e3"><div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.06em;margin-bottom:6px">'+label.toUpperCase()+'</div><div style="font-size:18px;font-weight:800;color:'+color+'">'+valor+'</div></div>';}
 
