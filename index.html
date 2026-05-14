@@ -1566,7 +1566,11 @@ function mostrarSelectorDestino(esCorporativo, hoteles) {
   var title = document.getElementById('hotel-select-title');
   if (title) title.textContent = esCorporativo ? 'Selecciona destino' : 'Selecciona hotel';
   list.innerHTML = '';
+  // Marcar el estado corporativo en cuanto se sabe, aunque el usuario vaya directo al hotel
   if (esCorporativo) {
+    _esCorporativo = true;
+    _corpHoteles = hoteles;
+  }
     var btnCorp = document.createElement('button');
     btnCorp.innerHTML = '<span style="font-size:16px;margin-right:8px">📊</span>Vista corporativa';
     btnCorp.style.cssText = 'padding:14px 16px;border:2px solid #1d9e75;border-radius:10px;background:#f0fbf6;font-size:14px;font-weight:700;cursor:pointer;text-align:left;color:#1d9e75;width:100%';
