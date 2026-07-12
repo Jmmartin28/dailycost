@@ -1248,10 +1248,14 @@ async function guardarCierreSharePoint(datosCierre) {
   const listLinId = await getListId(siteId, 'DC_Lineas');
   const fechaISO = datosCierre.fecha + 'T12:00:00Z';
 
-  // Verificar si ya existe cierre para esa fecha/hotel
-
-  const cabRaw = await graphCall('/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500');
-  const existentes = (cabRaw.value||[]).filter(function(i){
+  // Verificar si ya existe cierre para esa fecha/hotel (paginando para no perder registros)
+  var todasCab = [], nextCab = '/sites/'+siteId+'/lists/'+listCabId+'/items?$expand=fields&$top=500';
+  while (nextCab) {
+    var rCab = await graphCall(nextCab.replace('https://graph.microsoft.com/v1.0',''));
+    todasCab = todasCab.concat(rCab.value || []);
+    nextCab = rCab['@odata.nextLink'] ? rCab['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+  }
+  const existentes = todasCab.filter(function(i){
     return String(i.fields.HotelID)===String(datosCierre.hotelId) &&
            (i.fields.Fecha||'').slice(0,10)===datosCierre.fecha;
   });
@@ -1632,6 +1636,8 @@ document.getElementById('btn-close').addEventListener('click', async function() 
     lineas: lineas
   };
 
+  var btnClose = document.getElementById('btn-close');
+  btnClose.disabled = true;
   try {
     toast('Guardando cierre...', null, 10000);
     var resultado = await guardarCierreSharePoint(datosCierre);
@@ -1645,6 +1651,8 @@ document.getElementById('btn-close').addEventListener('click', async function() 
   } catch(err) {
     console.error(err);
     toast('Error al guardar el cierre: ' + err.message, 'err');
+  } finally {
+    btnClose.disabled = false;
   }
 });
 
