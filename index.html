@@ -1052,17 +1052,31 @@ async function intentarCargarCierreFecha(fecha) {
       document.getElementById('h-badge').textContent = 'Cerrado';
       renderRight(); return;
     }
-    var todasLineas = [];
-    var nextLin = '/sites/'+siteId+'/lists/'+listLinId+'/items?$expand=fields&$top=500';
-    while (nextLin) {
-      var rLin = await graphCall(nextLin.replace('https://graph.microsoft.com/v1.0',''));
-      todasLineas = todasLineas.concat(rLin.value || []);
-      nextLin = rLin['@odata.nextLink'] ? rLin['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+    var lineas = [];
+    // Vía rápida: filtrar en el servidor por CierreId (solo trae las líneas de ESTE cierre)
+    try {
+      var nextF = '/sites/'+siteId+'/lists/'+listLinId+'/items?$expand=fields&$top=500&$filter=fields/CierreId eq '+parseInt(cierreIdNum);
+      while (nextF) {
+        var rF = await graphCall(nextF.replace('https://graph.microsoft.com/v1.0',''));
+        if (rF.error) throw new Error(rF.error.message || 'filtro no soportado');
+        lineas = lineas.concat(rF.value || []);
+        nextF = rF['@odata.nextLink'] ? rF['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+      }
+    } catch(filtErr) {
+      // Fallback: descargar toda la lista y filtrar en cliente (si CierreId no está indexado en SP)
+      console.warn('Filtro servidor no disponible, descarga completa:', filtErr.message);
+      lineas = [];
+      var nextLin = '/sites/'+siteId+'/lists/'+listLinId+'/items?$expand=fields&$top=500';
+      while (nextLin) {
+        var rLin = await graphCall(nextLin.replace('https://graph.microsoft.com/v1.0',''));
+        lineas = lineas.concat((rLin.value || []).filter(function(i){
+          return String(i.fields.CierreId) === String(cierreIdNum);
+        }));
+        nextLin = rLin['@odata.nextLink'] ? rLin['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','') : null;
+      }
     }
-    var lineas = todasLineas.filter(function(i) {
-      return String(i.fields.CierreId) === String(cierreIdNum) &&
-             String(i.fields.HotelId) === String(currentHotel.HotelId);
-    });
+    // Seguridad: asegurar que las líneas son del hotel correcto
+    lineas = lineas.filter(function(i){ return String(i.fields.HotelId) === String(currentHotel.HotelId); });
     state.items = lineas.map(function(lin) {
       var f = lin.fields;
       var cod = String(f.IdArticulo || '');
@@ -1282,25 +1296,36 @@ async function guardarCierreSharePoint(datosCierre) {
   const cierreNumId = cabCreado.id;
   console.log('Cabecera creada OK. CierreId:', cierreNumId);
 
-  // Crear lineas
-  for (var i = 0; i < datosCierre.lineas.length; i++) {
-    var linea = datosCierre.lineas[i];
-    var linFields = {
-      Title: datosCierre.hotelNombre + ' - ' + datosCierre.fecha,
-      CierreId: parseInt(cierreNumId) || 0,
-      HotelId: datosCierre.hotelId,
-      Fecha: fechaISO,
-      IdArticulo: linea.idArticulo,
-      Articulo: linea.articulo,
-      Familia: linea.familia,
-      CC: linea.cc,
-      Unidad: linea.unidad,
-      Precio: linea.precio,
-      UnidadesConsumidas: linea.cantidad,
-      Coste: linea.coste,
-      EsSAP: linea.esSAP ? true : false
-    };
-    await graphCall('/sites/' + siteId + '/lists/' + listLinId + '/items', 'POST', { fields: linFields });
+  // Crear lineas en batches de 20 para evitar throttling de Graph API
+  var cierreIdNum = parseInt(cierreNumId) || 0;
+  for (var c = 0; c < datosCierre.lineas.length; c += 20) {
+    var chunk = datosCierre.lineas.slice(c, c + 20);
+    var requests = chunk.map(function(linea, j) {
+      return {
+        id: String(j + 1),
+        method: 'POST',
+        url: '/sites/' + siteId + '/lists/' + listLinId + '/items',
+        headers: { 'Content-Type': 'application/json' },
+        body: { fields: {
+          Title: datosCierre.hotelNombre + ' - ' + datosCierre.fecha,
+          CierreId: cierreIdNum,
+          HotelId: datosCierre.hotelId,
+          Fecha: fechaISO,
+          IdArticulo: linea.idArticulo,
+          Articulo: linea.articulo,
+          Familia: linea.familia,
+          CC: linea.cc,
+          Unidad: linea.unidad,
+          Precio: linea.precio,
+          UnidadesConsumidas: linea.cantidad,
+          Coste: linea.coste,
+          EsSAP: linea.esSAP ? true : false
+        }}
+      };
+    });
+    var batchResp = await graphCall('/$batch', 'POST', { requests: requests });
+    var fallidas = (batchResp.responses || []).filter(function(r){ return r.status >= 300; });
+    if (fallidas.length > 0) throw new Error('Error creando ' + fallidas.length + ' línea(s): ' + JSON.stringify(fallidas[0].body));
   }
   return { version: version, esCorreccion: esCorreccion };
 }
