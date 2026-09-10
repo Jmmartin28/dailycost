@@ -1198,6 +1198,50 @@ async function graphCall(url, method, body) {
   return r.json();
 }
 
+function sleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+
+// Ejecuta sub-peticiones $batch en lotes de 20, mirando el estado real de cada una
+// y reintentando las que devuelven 429/503 (throttling de SharePoint), respetando Retry-After.
+// items: [{ method, url, headers?, body? }]  ->  { ok, failed:[{it,status}] }
+async function batchGraph(items, onProgress) {
+  var LOTE = 20, PAUSA_MS = 300, MAX_INTENTOS = 8;
+  var okCount = 0, failed = [];
+  for (var i = 0; i < items.length; i += LOTE) {
+    var pendientes = items.slice(i, i + LOTE).map(function(it, j){ return { rid: String(j+1), it: it }; });
+    var intento = 0;
+    while (pendientes.length && intento < MAX_INTENTOS) {
+      intento++;
+      var requests = pendientes.map(function(p){
+        var req = { id: p.rid, method: p.it.method, url: p.it.url };
+        if (p.it.headers) req.headers = p.it.headers;
+        if (p.it.body)    req.body    = p.it.body;
+        return req;
+      });
+      var resp;
+      try { resp = await graphCall('/$batch', 'POST', { requests: requests }); }
+      catch(e){ await sleep(1000 * intento); continue; }   // el lote entero cae: reintenta todo
+      var byId = {}; ((resp && resp.responses) || []).forEach(function(r){ byId[r.id] = r; });
+      var reintentar = [], retryAfter = 0;
+      pendientes.forEach(function(p){
+        var r = byId[p.rid];
+        if (!r) { reintentar.push(p); return; }                         // sin respuesta -> reintentar
+        if (r.status >= 200 && r.status < 300) { okCount++; return; }    // ok
+        if (r.status === 429 || r.status === 503 || r.status === 504 || r.status === 500) {
+          reintentar.push(p);                                           // throttling/transitorio -> reintentar
+          var ra = r.headers && (r.headers['Retry-After'] || r.headers['retry-after']);
+          if (ra) retryAfter = Math.max(retryAfter, parseInt(ra,10) || 0);
+        } else { failed.push({ it: p.it, status: r.status }); }         // 400/403/404... error real
+      });
+      if (onProgress) onProgress(okCount, items.length);
+      pendientes = reintentar;
+      if (pendientes.length) await sleep(retryAfter > 0 ? retryAfter*1000 : Math.min(1000*Math.pow(2,intento), 15000));
+    }
+    pendientes.forEach(function(p){ failed.push({ it: p.it, status: 'sin_confirmar' }); });
+    await sleep(PAUSA_MS);
+  }
+  return { ok: okCount, failed: failed };
+}
+
 async function getSiteId() {
   if (_siteId) return _siteId;
   const r = await graphCall('/sites/sohohoteles.sharepoint.com:/sites/controldegestion:');
@@ -1978,35 +2022,32 @@ async function actualizarArticulosDesdeExcel() {
       delUrl = resp['@odata.nextLink'] ? resp['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
     }
 
-    for (var d = 0; d < idsToDelete.length; d += 20) {
-      const chunk = idsToDelete.slice(d, d + 20);
-      const requests = chunk.map(function(id, j) {
-        return { id: String(j + 1), method: 'DELETE', url: '/sites/' + siteId + '/lists/' + listId + '/items/' + id };
-      });
-      await graphCall('/$batch', 'POST', { requests: requests });
-      progMsg('Borrando... ' + Math.min(d + 20, idsToDelete.length) + '/' + idsToDelete.length);
-    }
+    const delItems = idsToDelete.map(function(id) {
+      return { method: 'DELETE', url: '/sites/' + siteId + '/lists/' + listId + '/items/' + id };
+    });
+    const resDel = await batchGraph(delItems, function(done, total) { progMsg('Borrando... ' + done + '/' + total); });
+    if (resDel.failed.length) console.warn('[ActualizarArticulos] Borrados con fallo:', resDel.failed);
 
     progMsg('Creando ' + articulos.length + ' artículos nuevos...');
 
-    // 3. Recrear items desde el Excel (batch 20 por lote)
-    for (var c = 0; c < articulos.length; c += 20) {
-      const chunk = articulos.slice(c, c + 20);
-      const requests = chunk.map(function(art, j) {
-        return {
-          id: String(j + 1),
-          method: 'POST',
-          url: '/sites/' + siteId + '/lists/' + listId + '/items',
-          headers: { 'Content-Type': 'application/json' },
-          body: { fields: art }
-        };
-      });
-      await graphCall('/$batch', 'POST', { requests: requests });
-      progMsg('Creando... ' + Math.min(c + 20, articulos.length) + '/' + articulos.length);
-    }
+    // 3. Recrear items desde el Excel (batch 20 por lote, con reintento ante throttling)
+    const createItems = articulos.map(function(art) {
+      return {
+        method: 'POST',
+        url: '/sites/' + siteId + '/lists/' + listId + '/items',
+        headers: { 'Content-Type': 'application/json' },
+        body: { fields: art }
+      };
+    });
+    const resCrea = await batchGraph(createItems, function(done, total) { progMsg('Creando... ' + done + '/' + total); });
 
     progEl.style.display = 'none';
-    toast('✓ Artículos actualizados: ' + articulos.length + ' registros', null, 4000);
+    if (resCrea.failed.length) {
+      console.warn('[ActualizarArticulos] Fallaron ' + resCrea.failed.length + ' artículos:', resCrea.failed);
+      toast('⚠ Creados ' + resCrea.ok + ' de ' + articulos.length + '. Fallaron ' + resCrea.failed.length + ' (ver consola F12)', 'warn', 7000);
+    } else {
+      toast('✓ Artículos actualizados: ' + resCrea.ok + ' registros', null, 4000);
+    }
   } catch(e) {
     console.error('Error actualizando artículos:', e);
     if (progEl) progEl.style.display = 'none';
