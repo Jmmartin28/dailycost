@@ -999,12 +999,18 @@ document.getElementById('lh-clear').addEventListener('click',()=>{
 });
 
 // ── FECHA / PAX ──
-const hoy=new Date().toISOString().slice(0,10);
+// Fecha LOCAL (toISOString da UTC: entre 00:00 y 02:00 en España devolvía el día anterior)
+function fechaLocalISO(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+const hoy=fechaLocalISO();
 state.fecha=hoy;
 document.getElementById('dc-fecha').value=hoy;
-var _fechaAntes = document.getElementById('dc-fecha').value;
-document.getElementById('dc-fecha').addEventListener('focus', function() { _fechaAntes = this.value; });
-document.getElementById('dc-fecha').addEventListener('blur', async function() {
+var _fechaAntes = hoy;
+// 'change' en vez de focus/blur: el selector de calendario (Edge/tablets) puede disparar
+// focus DESPUÉS de cambiar el valor, y el blur posterior no actualizaba state.fecha
+document.getElementById('dc-fecha').addEventListener('change', async function() {
   var fechaNueva = this.value;
   if (!fechaNueva || fechaNueva === _fechaAntes) return;
   state.fecha = fechaNueva;
@@ -1672,6 +1678,13 @@ function mostrarSelectorDestino(esCorporativo, hoteles) {
 document.getElementById('btn-close').addEventListener('click', async function() {
   if (!currentUser) { toast('Debes iniciar sesion', 'err'); return; }
   if (!state.pax) { toast('Indica pensiones', 'err'); paxInput.focus(); return; }
+  // Seguridad: la fecha del cierre es SIEMPRE la que el usuario ve en pantalla
+  var fechaInput = document.getElementById('dc-fecha').value;
+  if (!fechaInput) { toast('Indica la fecha del cierre', 'err'); return; }
+  if (fechaInput !== state.fecha) {
+    console.warn('Fecha desincronizada: state=' + state.fecha + ' input=' + fechaInput + ' -> se usa la del input');
+    state.fecha = fechaInput; _fechaAntes = fechaInput;
+  }
   var dudas = state.items.filter(function(i){ return i.estado === 'duda'; }).length;
   var errores = state.items.filter(function(i){ return i.estado === 'error'; }).length;
   var msg = 'Cerrar el dia ' + state.fecha + '?\n\nArticulos: ' + state.items.length + '\nPensiones: ' + state.pax;
